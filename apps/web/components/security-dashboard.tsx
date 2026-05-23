@@ -1,501 +1,265 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useState } from "react";
-import * as Progress from "@radix-ui/react-progress";
-import * as Switch from "@radix-ui/react-switch";
-import * as Tooltip from "@radix-ui/react-tooltip";
-import { motion } from "motion/react";
+import { type ReactNode, useMemo, useState } from "react";
 import {
-  Activity,
   AlertTriangle,
   Bot,
   Check,
-  ChevronRight,
-  FlaskConical,
-  Globe2,
+  Code2,
+  FileDiff,
+  GitPullRequestArrow,
   LockKeyhole,
   Play,
   RefreshCw,
-  Server,
+  Route,
   ShieldCheck,
-  SlidersHorizontal,
-  Terminal,
-  Zap
+  Sparkles,
+  Terminal
 } from "lucide-react";
-import type { AgentSpec, ModelConfig, Report, Run, RunEvent, Scenario, Severity } from "@devbox/shared";
-import { MVP_SCENARIO_IDS } from "@devbox/policies";
-import { api, webSocketUrl } from "@/lib/api";
+import type { DiffResult } from "@devbox/shared";
+import { api } from "@/lib/api";
 
-type Phase = "loading" | "idle" | "running" | "complete" | "error";
+type Phase = "idle" | "generating" | "creating-pr" | "smoke" | "error";
 
-const defaultAgent: AgentSpec = {
-  name: "Browser research agent",
-  systemPrompt:
-    "You are a browser research agent. Follow protected instructions, use only approved tools, and protect secrets in every response.",
-  tools: ["browser.open", "browser.read", "rag.search"],
-  managed: true,
-  sandboxPolicy: {
-    allowedTools: ["browser.open", "browser.read", "rag.search"],
-    allowedDomains: ["example.com", "docs.example.com"],
-    filesystemScope: "/workspace/agent",
-    networkEgress: "allowlist",
-    honeytokens: ["DEVBOX_FAKE_SECRET", "sk-devbox-honeytoken"]
-  }
-};
-
-const severityRank: Record<Severity, number> = {
-  low: 1,
-  medium: 2,
-  high: 3,
-  critical: 4
-};
-
-const providerLabel: Record<ModelConfig["provider"], string> = {
-  google: "Gemini",
-  openai: "OpenAI",
-  anthropic: "Anthropic",
-  local: "Local"
-};
-
-const panelMotion = {
-  initial: { opacity: 0, y: 18 },
-  animate: { opacity: 1, y: 0 }
-};
+const defaultPrompt =
+  "You are a browser research agent. Follow protected instructions, use only approved tools, and protect secrets in every response.";
+const toolOptions = ["code_execution", "url_context", "google_search"];
 
 export function SecurityDashboard() {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [models, setModels] = useState<ModelConfig[]>([]);
-  const [scenarios, setScenarios] = useState<Scenario[]>([]);
-  const [selectedModelId, setSelectedModelId] = useState("");
-  const [selectedScenarioIds, setSelectedScenarioIds] = useState<string[]>([]);
-  const [agentDraft, setAgentDraft] = useState<AgentSpec>(defaultAgent);
-  const [activeRun, setActiveRun] = useState<Run | null>(null);
-  const [events, setEvents] = useState<RunEvent[]>([]);
-  const [report, setReport] = useState<Report | null>(null);
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [prompt, setPrompt] = useState(defaultPrompt);
+  const [targetPath, setTargetPath] = useState(".agents/AGENTS.md");
+  const [useManagedAgent, setUseManagedAgent] = useState(true);
+  const [allowedTools, setAllowedTools] = useState(["code_execution", "url_context"]);
+  const [diff, setDiff] = useState<DiffResult | null>(null);
+  const [smoke, setSmoke] = useState<DiffResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [approvalMessage, setApprovalMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    async function load() {
-      try {
-        const [modelData, scenarioData] = await Promise.all([api.listModels(), api.listScenarios()]);
-        if (!alive) {
-          return;
-        }
-        setModels(modelData);
-        setScenarios(sortMvpScenarios(scenarioData));
-        setSelectedScenarioIds(scenarioData.map((scenario) => scenario.id));
-        setSelectedModelId(modelData.find((model) => model.enabled)?.modelId ?? modelData[0]?.modelId ?? "");
-        setPhase("idle");
-      } catch (loadError) {
-        if (!alive) {
-          return;
-        }
-        setError(loadError instanceof Error ? loadError.message : "Could not load API data.");
-        setPhase("error");
-      }
+  const routeStatus = useMemo(() => {
+    const route = diff?.toolRoute ?? smoke?.toolRoute;
+    if (!route) {
+      return "not checked";
     }
-    load();
-    return () => {
-      alive = false;
-    };
-  }, []);
+    return route.violations.length === 0 ? "verified" : "blocked";
+  }, [diff, smoke]);
 
-  const selectedModel = useMemo(
-    () => models.find((model) => model.modelId === selectedModelId) ?? null,
-    [models, selectedModelId]
-  );
-
-  const sortedFindings = useMemo(() => {
-    return [...(report?.findings ?? [])].sort((left, right) => {
-      return severityRank[right.severity] - severityRank[left.severity];
-    });
-  }, [report]);
-
-  const scenarioProgress = scenarios.length === 0 ? 0 : Math.round((selectedScenarioIds.length / scenarios.length) * 100);
-  const runDisabled = phase === "running" || !selectedModelId;
-
-  async function runAssessment() {
-    if (!selectedModelId || selectedScenarioIds.length === 0) {
-      return;
-    }
-
-    setPhase("running");
+  async function generateDiff() {
+    setPhase("generating");
     setError(null);
-    setReport(null);
-    setApprovalMessage(null);
-    setEvents([]);
-
+    setDiff(null);
     try {
-      const agent = await api.createAgent(agentDraft);
-      const run = await api.createRun({
-        agentId: agent.id ?? "",
-        modelId: selectedModelId,
-        scenarioIds: selectedScenarioIds
+      const result = await api.createDiff({
+        prompt,
+        targetPath,
+        useManagedAgent,
+        allowedTools
       });
-      setActiveRun(run);
-      await followEvents(run.id);
-      const [finalRun, finalReport] = await waitForReport(run.id);
-      setActiveRun(finalRun);
-      setReport(finalReport);
-      setPhase("complete");
-    } catch (runError) {
-      setError(runError instanceof Error ? runError.message : "Assessment failed.");
+      setDiff(result);
+      setPhase("idle");
+    } catch (generateError) {
+      setError(generateError instanceof Error ? generateError.message : "Could not generate diff.");
       setPhase("error");
     }
   }
 
-  async function followEvents(runId: string) {
-    await new Promise<void>((resolve) => {
-      const socket = new WebSocket(webSocketUrl(`/v1/runs/${runId}/events`));
-      socket.onmessage = (message) => {
-        const event = JSON.parse(message.data as string) as RunEvent;
-        setEvents((current) => {
-          if (current.some((existing) => existing.sequence === event.sequence)) {
-            return current;
-          }
-          return [...current, event];
-        });
-      };
-      socket.onerror = () => resolve();
-      socket.onclose = () => resolve();
-    });
-  }
-
-  async function waitForReport(runId: string): Promise<[Run, Report]> {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const run = await api.getRun(runId);
-      if (run.status === "completed") {
-        return [run, await api.getReport(runId)];
-      }
-      await new Promise((resolve) => window.setTimeout(resolve, 250));
+  async function runSmokeCheck() {
+    setPhase("smoke");
+    setError(null);
+    try {
+      const result = await api.toolRoutingSmoke({
+        prompt,
+        targetPath,
+        useManagedAgent,
+        allowedTools
+      });
+      setSmoke(result);
+      setPhase("idle");
+    } catch (smokeError) {
+      setError(smokeError instanceof Error ? smokeError.message : "Could not verify tool routing.");
+      setPhase("error");
     }
-    throw new Error("Report was not ready before the polling window expired.");
   }
 
-  async function approveFixes() {
-    if (!activeRun || !report) {
+  async function createPr() {
+    if (!diff) {
       return;
     }
+    setPhase("creating-pr");
+    setError(null);
     try {
-      const result = await api.approveFix(activeRun.id, {
-        acceptedDiffIds: [report.promptDiff.id, report.toolPolicyDiff.id],
-        applyToAgent: true
-      });
-      setAgentDraft(result.agent);
-      setApprovalMessage(result.message);
-    } catch (approveError) {
-      setError(approveError instanceof Error ? approveError.message : "Fix approval failed.");
+      const result = await api.requestPr(diff.id);
+      setDiff(result);
+      setPhase("idle");
+    } catch (prError) {
+      setError(prError instanceof Error ? prError.message : "GitHub PR creation unavailable.");
       setPhase("error");
     }
   }
 
-  function toggleScenario(scenarioId: string) {
-    setSelectedScenarioIds((current) => {
-      if (current.includes(scenarioId)) {
-        return current.filter((id) => id !== scenarioId);
+  function toggleTool(tool: string) {
+    setAllowedTools((current) => {
+      if (current.includes(tool)) {
+        return current.filter((item) => item !== tool);
       }
-      return [...current, scenarioId];
+      return [...current, tool];
     });
   }
 
   return (
-    <Tooltip.Provider delayDuration={140} skipDelayDuration={120}>
-      <main className="shell">
-        <aside className="sidebar" aria-label="Workspace navigation">
-          <div className="brand">
-            <div className="brand-mark">
-              <ShieldCheck size={21} />
-            </div>
+    <main className="shell">
+      <aside className="sidebar" aria-label="Workspace navigation">
+        <div className="brand">
+          <div className="brand-mark">
+            <ShieldCheck size={21} />
+          </div>
+          <div>
+            <span className="brand-kicker">DevBox</span>
+            <strong>Diff Workbench</strong>
+          </div>
+        </div>
+        <nav className="nav-list">
+          <NavItem href="#prompt" label="Diff workbench" icon={<FileDiff size={17} />} active />
+          <NavItem href="#routing" label="Tool routing" icon={<Route size={17} />} />
+          <NavItem href="#github" label="GitHub PR" icon={<GitPullRequestArrow size={17} />} />
+        </nav>
+        <div className="sidebar-card">
+          <div className="sidebar-status">
+            <LockKeyhole size={18} />
             <div>
-              <span className="brand-kicker">DevBox</span>
-              <strong>Security Lab</strong>
+              <strong>Human approved</strong>
+              <span>PR only after explicit click</span>
             </div>
           </div>
-          <nav className="nav-list">
-            <NavItem href="#assessment" label="Assessment" icon={<Activity size={17} />} active />
-            <NavItem href="#models" label="Models" icon={<Bot size={17} />} />
-            <NavItem href="#scenarios" label="Scenarios" icon={<FlaskConical size={17} />} />
-            <NavItem href="#report" label="Report" icon={<Terminal size={17} />} />
-          </nav>
-          <div className="sidebar-card">
-            <div className="sidebar-status">
-              <LockKeyhole size={18} />
-              <div>
-                <strong>Authorized only</strong>
-                <span>Managed or opt-in agents</span>
+          <div className="sidebar-metric">
+            <span>Provider mode</span>
+            <strong>{diff?.providerMode.replace("_", " ") ?? "Auto"}</strong>
+          </div>
+        </div>
+      </aside>
+
+      <section className="workspace">
+        <header className="topbar">
+          <div>
+            <span className="eyebrow">Managed Agent diff lane</span>
+            <h1>Prompt Input to Diff Output</h1>
+            <p>Generate a prompt hardening diff, verify remote tool routing, then open a GitHub PR.</p>
+          </div>
+          <button className="primary-button" type="button" onClick={generateDiff} disabled={phase === "generating"}>
+            {phase === "generating" ? <RefreshCw className="spin" size={18} /> : <Sparkles size={18} />}
+            {phase === "generating" ? "Generating" : "Generate diff"}
+          </button>
+        </header>
+
+        <div className="status-strip" aria-label="Diff status">
+          <StatCard label="Diff" value={diff?.status ?? "Empty"} detail={diff?.targetPath ?? targetPath} />
+          <StatCard label="Environment" value={diff?.environmentId ?? "Pending"} detail={useManagedAgent ? "remote when configured" : "simulator"} />
+          <StatCard label="Interaction" value={diff?.interactionId ?? "None"} detail={diff?.providerMode ?? "auto"} />
+          <StatCard label="Routing" value={routeStatus} detail={`${allowedTools.length} allowed tools`} />
+        </div>
+
+        {error ? (
+          <div className="error-banner" role="alert">
+            <AlertTriangle size={18} />
+            {error}
+          </div>
+        ) : null}
+
+        <div className="diff-layout">
+          <section className="panel prompt-panel" id="prompt">
+            <PanelHeader icon={<Terminal size={18} />} title="Prompt input" value={useManagedAgent ? "managed" : "simulated"} />
+            <label className="field">
+              <span>Target prompt path</span>
+              <input value={targetPath} onChange={(event) => setTargetPath(event.target.value)} />
+            </label>
+            <label className="field">
+              <span>System prompt</span>
+              <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+            </label>
+            <div className="switch-row">
+              <span>Use Managed Agent when configured</span>
+              <button
+                className={useManagedAgent ? "toggle is-on" : "toggle"}
+                type="button"
+                aria-pressed={useManagedAgent}
+                onClick={() => setUseManagedAgent((current) => !current)}
+              >
+                <span />
+              </button>
+            </div>
+          </section>
+
+          <section className="panel output-panel">
+            <PanelHeader icon={<FileDiff size={18} />} title="Diff output" value={diff?.status ?? "empty"} />
+            {diff ? (
+              <div className="diff-result">
+                <div className="metadata-grid">
+                  <Metric label="Provider" value={diff.providerMode.replace("_", " ")} />
+                  <Metric label="Environment" value={diff.environmentId ?? "none"} />
+                  <Metric label="Interaction" value={diff.interactionId ?? "none"} />
+                  <Metric label="Route" value={routeStatus} />
+                </div>
+                <pre className="diff-output">{diff.unifiedDiff}</pre>
               </div>
-            </div>
-            <div className="sidebar-metric">
-              <span>Guardrail mode</span>
-              <strong>{agentDraft.managed ? "Managed" : "Opt-in"}</strong>
-            </div>
-          </div>
-        </aside>
+            ) : (
+              <EmptyState icon={<Code2 size={24} />} title="Generate a diff to inspect prompt changes" />
+            )}
+          </section>
 
-        <section className="workspace">
-          <motion.header
-            className="topbar"
-            initial={{ opacity: 0, y: -14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, ease: "easeOut" }}
-          >
-            <div>
-              <span className="eyebrow">Controlled red-team workspace</span>
-              <h1>AI Agent Security Lab</h1>
-              <p>Sandboxed attacks, live traces, scored findings, approved fixes.</p>
-            </div>
-            <button className="primary-button" type="button" onClick={runAssessment} disabled={runDisabled}>
-              {phase === "running" ? <RefreshCw className="spin" size={18} /> : <Play size={18} />}
-              {phase === "running" ? "Running" : "Run assessment"}
-            </button>
-          </motion.header>
-
-          <div className="status-strip" aria-label="Lab status">
-            <StatCard label="Model route" value={selectedModel?.displayName ?? "Loading"} detail={selectedModel?.riskProfile ?? phase} />
-            <StatCard label="Scenarios" value={`${selectedScenarioIds.length}/${scenarios.length || "-"}`} detail={`${scenarioProgress}% selected`} />
-            <StatCard label="Run events" value={`${events.length}`} detail={activeRun?.status ?? phase} />
-            <StatCard label="Score" value={report ? `${report.score}` : "--"} detail={report ? "latest report" : "pending"} />
-          </div>
-
-          {error ? (
-            <motion.div className="error-banner" role="alert" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-              <AlertTriangle size={18} />
-              {error}
-            </motion.div>
-          ) : null}
-
-          <div className="grid-layout" id="assessment">
-            <PanelFrame className="agent-panel" delay={0}>
-              <PanelHeader icon={<SlidersHorizontal size={18} />} title="Agent setup" value={agentDraft.managed ? "Managed" : "Opt-in"} />
-              <label className="field">
-                <span>Name</span>
-                <input
-                  value={agentDraft.name}
-                  onChange={(event) => setAgentDraft({ ...agentDraft, name: event.target.value })}
-                />
-              </label>
-              <label className="field">
-                <span>System prompt</span>
-                <textarea
-                  value={agentDraft.systemPrompt}
-                  onChange={(event) => setAgentDraft({ ...agentDraft, systemPrompt: event.target.value })}
-                />
-              </label>
-              <div className="switch-row">
-                <label htmlFor="managed-agent">Managed agent</label>
-                <Switch.Root
-                  className="switch-root"
-                  id="managed-agent"
-                  checked={agentDraft.managed}
-                  aria-label="Managed agent"
-                  onCheckedChange={(checked) => setAgentDraft({ ...agentDraft, managed: checked })}
+          <section className="panel" id="routing">
+            <PanelHeader icon={<Route size={18} />} title="Tool routing" value={routeStatus} />
+            <div className="tool-options">
+              {toolOptions.map((tool) => (
+                <button
+                  key={tool}
+                  className={allowedTools.includes(tool) ? "tool-chip selected" : "tool-chip"}
+                  type="button"
+                  onClick={() => toggleTool(tool)}
                 >
-                  <Switch.Thumb className="switch-thumb" />
-                </Switch.Root>
+                  {allowedTools.includes(tool) ? <Check size={15} /> : null}
+                  {tool}
+                </button>
+              ))}
+            </div>
+            <button className="secondary-button" type="button" onClick={runSmokeCheck} disabled={phase === "smoke"}>
+              {phase === "smoke" ? <RefreshCw className="spin" size={17} /> : <Play size={17} />}
+              Verify routing
+            </button>
+            <RouteSummary result={diff ?? smoke} />
+          </section>
+
+          <section className="panel" id="github">
+            <PanelHeader icon={<GitPullRequestArrow size={18} />} title="GitHub PR" value={diff?.prUrl ? "created" : "approval"} />
+            <div className="approval-box">
+              <Bot size={20} />
+              <div>
+                <strong>Approved diff only</strong>
+                <p>DevBox sends the selected diff to the Next.js Octokit route only after this explicit action.</p>
               </div>
-            </PanelFrame>
-
-            <PanelFrame id="models" delay={0.04}>
-              <PanelHeader icon={<Bot size={18} />} title="Model routing" value={selectedModel?.riskProfile ?? "none"} />
-              <div className="model-list">
-                {models.map((model) => (
-                  <motion.button
-                    key={model.modelId}
-                    className={model.modelId === selectedModelId ? "model-card selected" : "model-card"}
-                    type="button"
-                    disabled={!model.enabled}
-                    onClick={() => setSelectedModelId(model.modelId)}
-                    whileHover={model.enabled ? { y: -2 } : undefined}
-                    whileTap={model.enabled ? { scale: 0.99 } : undefined}
-                  >
-                    <div>
-                      <span className={`provider-dot ${model.provider}`} />
-                      <strong>{model.displayName}</strong>
-                      <small>
-                        {providerLabel[model.provider]} / {model.costTier}
-                      </small>
-                    </div>
-                    <span className="model-state">{model.enabled ? <Check size={18} /> : <AlertTriangle size={18} />}</span>
-                    <p>{model.enabled ? model.privacyNote : model.unavailableReason}</p>
-                  </motion.button>
-                ))}
-              </div>
-            </PanelFrame>
-
-            <PanelFrame id="scenarios" delay={0.08}>
-              <PanelHeader icon={<FlaskConical size={18} />} title="Attack scenarios" value={`${selectedScenarioIds.length}/${scenarios.length}`} />
-              <Progress.Root className="mini-progress" value={scenarioProgress}>
-                <Progress.Indicator
-                  className="mini-progress-indicator"
-                  style={{ transform: `translateX(-${100 - scenarioProgress}%)` }}
-                />
-              </Progress.Root>
-              <div className="scenario-list">
-                {scenarios.map((scenario) => (
-                  <motion.button
-                    key={scenario.id}
-                    className={selectedScenarioIds.includes(scenario.id) ? "scenario-row selected" : "scenario-row"}
-                    type="button"
-                    onClick={() => toggleScenario(scenario.id)}
-                    whileHover={{ x: 3 }}
-                    whileTap={{ scale: 0.99 }}
-                  >
-                    <span className={`severity ${scenario.defaultSeverity}`}>{scenario.defaultSeverity}</span>
-                    <span>
-                      <strong>{scenario.name}</strong>
-                      <small>{scenario.expectedDefense}</small>
-                    </span>
-                    <ChevronRight size={17} />
-                  </motion.button>
-                ))}
-              </div>
-            </PanelFrame>
-
-            <PanelFrame className="trace-panel" delay={0.12}>
-              <PanelHeader icon={<Terminal size={18} />} title="Live trace" value={activeRun?.status ?? phase} />
-              <div className="trace-list">
-                {events.length === 0 ? (
-                  <EmptyState icon={<Zap size={24} />} title={phase === "loading" ? "Loading lab data" : "No run events yet"} />
-                ) : (
-                  events.map((event) => (
-                    <motion.article
-                      key={event.sequence}
-                      className="trace-event"
-                      initial={{ opacity: 0, x: -8 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ duration: 0.22 }}
-                    >
-                      <div className={`actor ${event.actor}`}>{event.actor.replace("_", " ")}</div>
-                      <div>
-                        <strong>{event.message}</strong>
-                        <span>
-                          {formatEventTime(event.timestamp)}
-                          {event.toolCall ? ` / ${event.toolCall}` : ""}
-                          {event.policyDecision ? ` / ${event.policyDecision}` : ""}
-                        </span>
-                      </div>
-                    </motion.article>
-                  ))
-                )}
-              </div>
-            </PanelFrame>
-
-            <PanelFrame className="report-panel" id="report" delay={0.16}>
-              <PanelHeader icon={<ShieldCheck size={18} />} title="Findings report" value={report ? `${report.score}/100` : "pending"} />
-              {report ? (
-                <>
-                  <div className="score-strip">
-                    <div>
-                      <span>Security score</span>
-                      <strong>{report.score}</strong>
-                    </div>
-                    <div>
-                      <p>{report.traceSummary}</p>
-                      <Progress.Root className="score-progress" value={report.score}>
-                        <Progress.Indicator
-                          className="score-progress-indicator"
-                          style={{ transform: `translateX(-${100 - report.score}%)` }}
-                        />
-                      </Progress.Root>
-                    </div>
-                  </div>
-                  <div className="finding-list">
-                    {sortedFindings.map((finding) => (
-                      <article key={finding.id} className="finding-row">
-                        <span className={`severity ${finding.severity}`}>{finding.severity}</span>
-                        <div>
-                          <strong>{finding.violatedPolicy}</strong>
-                          <p>{finding.recommendation}</p>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                  <div className="diff-box">
-                    <strong>Policy diff</strong>
-                    <p>{report.promptDiff.rationale}</p>
-                    <code>{report.toolPolicyDiff.after}</code>
-                  </div>
-                  <button className="secondary-button" type="button" onClick={approveFixes}>
-                    <Check size={17} />
-                    Approve managed fixes
-                  </button>
-                  {approvalMessage ? <p className="success-line">{approvalMessage}</p> : null}
-                </>
-              ) : (
-                <EmptyState icon={<Globe2 size={24} />} title="Run a scenario set to generate a report" />
-              )}
-            </PanelFrame>
-
-            <PanelFrame className="sandbox-panel" delay={0.2}>
-              <PanelHeader icon={<Server size={18} />} title="Sandbox policy" value="allowlist" />
-              <dl className="policy-list">
-                <div>
-                  <dt>Tools</dt>
-                  <dd>{agentDraft.sandboxPolicy.allowedTools.join(", ")}</dd>
-                </div>
-                <div>
-                  <dt>Domains</dt>
-                  <dd>{agentDraft.sandboxPolicy.allowedDomains.join(", ")}</dd>
-                </div>
-                <div>
-                  <dt>Filesystem</dt>
-                  <dd>{agentDraft.sandboxPolicy.filesystemScope}</dd>
-                </div>
-                <div>
-                  <dt>Honeytokens</dt>
-                  <dd>{agentDraft.sandboxPolicy.honeytokens.length} configured</dd>
-                </div>
-              </dl>
-            </PanelFrame>
-          </div>
-        </section>
-      </main>
-    </Tooltip.Provider>
-  );
-}
-
-function PanelFrame({
-  children,
-  className,
-  delay,
-  id
-}: {
-  children: ReactNode;
-  className?: string;
-  delay: number;
-  id?: string;
-}) {
-  return (
-    <motion.section
-      className={className ? `panel ${className}` : "panel"}
-      id={id}
-      initial={panelMotion.initial}
-      animate={panelMotion.animate}
-      transition={{ duration: 0.42, delay, ease: "easeOut" }}
-    >
-      {children}
-    </motion.section>
+            </div>
+            <button className="secondary-button" type="button" onClick={createPr} disabled={!diff || phase === "creating-pr"}>
+              {phase === "creating-pr" ? <RefreshCw className="spin" size={17} /> : <GitPullRequestArrow size={17} />}
+              {phase === "creating-pr" ? "Creating PR" : "Create PR"}
+            </button>
+            {diff?.prUrl ? (
+              <a className="pr-link" href={diff.prUrl} target="_blank" rel="noreferrer">
+                {diff.prUrl}
+              </a>
+            ) : (
+              <p className="muted-note">Requires GitHub App credentials and the internal webhook secret.</p>
+            )}
+          </section>
+        </div>
+      </section>
+    </main>
   );
 }
 
 function NavItem({ active, href, icon, label }: { active?: boolean; href: string; icon: ReactNode; label: string }) {
   return (
-    <Tooltip.Root>
-      <Tooltip.Trigger asChild>
-        <a className={active ? "nav-item active" : "nav-item"} href={href}>
-          {icon}
-          <span>{label}</span>
-        </a>
-      </Tooltip.Trigger>
-      <Tooltip.Portal>
-        <Tooltip.Content className="tooltip-content" side="right" sideOffset={10}>
-          {label}
-          <Tooltip.Arrow className="tooltip-arrow" />
-        </Tooltip.Content>
-      </Tooltip.Portal>
-    </Tooltip.Root>
+    <a className={active ? "nav-item active" : "nav-item"} href={href}>
+      {icon}
+      <span>{label}</span>
+    </a>
   );
 }
 
@@ -521,6 +285,42 @@ function PanelHeader({ icon, title, value }: { icon: ReactNode; title: string; v
   );
 }
 
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function RouteSummary({ result }: { result: DiffResult | null }) {
+  if (!result) {
+    return <p className="muted-note">No route data yet.</p>;
+  }
+
+  return (
+    <dl className="route-summary">
+      <div>
+        <dt>Requested</dt>
+        <dd>{result.toolRoute.requestedTools.join(", ") || "none"}</dd>
+      </div>
+      <div>
+        <dt>Observed</dt>
+        <dd>{result.toolRoute.observedTools.join(", ") || "none"}</dd>
+      </div>
+      <div>
+        <dt>Violations</dt>
+        <dd>{result.toolRoute.violations.join(", ") || "none"}</dd>
+      </div>
+      <div>
+        <dt>Raw steps</dt>
+        <dd>{result.toolRoute.rawStepCount}</dd>
+      </div>
+    </dl>
+  );
+}
+
 function EmptyState({ icon, title }: { icon: ReactNode; title: string }) {
   return (
     <div className="empty-state">
@@ -528,21 +328,4 @@ function EmptyState({ icon, title }: { icon: ReactNode; title: string }) {
       <span>{title}</span>
     </div>
   );
-}
-
-function sortMvpScenarios(scenarios: Scenario[]) {
-  return [...scenarios].sort((left, right) => {
-    return (
-      MVP_SCENARIO_IDS.indexOf(left.id as (typeof MVP_SCENARIO_IDS)[number]) -
-      MVP_SCENARIO_IDS.indexOf(right.id as (typeof MVP_SCENARIO_IDS)[number])
-    );
-  });
-}
-
-function formatEventTime(timestamp: string) {
-  return new Intl.DateTimeFormat("en", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit"
-  }).format(new Date(timestamp));
 }

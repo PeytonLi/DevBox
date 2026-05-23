@@ -11,6 +11,8 @@
   "dependencies": {
     "@devbox/policies": "workspace:*",
     "@devbox/shared": "workspace:*",
+    "@octokit/auth-app": "^8.2.0",
+    "@octokit/rest": "^22.0.1",
     "@radix-ui/react-progress": "^1.1.8",
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tooltip": "^1.2.8",

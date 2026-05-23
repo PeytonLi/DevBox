@@ -140,6 +140,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/diffs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Diff */
+        post: operations["create_diff_v1_diffs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/diffs/{diff_id}/request-pr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request Diff Pr */
+        post: operations["request_diff_pr_v1_diffs__diff_id__request_pr_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/managed-agent/tool-routing-smoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Managed Agent Tool Routing Smoke */
+        post: operations["managed_agent_tool_routing_smoke_v1_managed_agent_tool_routing_smoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -184,6 +235,57 @@ export interface components {
          * @enum {string}
          */
         CostTier: "low" | "medium" | "high" | "local";
+        /** DiffCreate */
+        DiffCreate: {
+            /** Prompt */
+            prompt: string;
+            /** Targetpath */
+            targetPath?: string | null;
+            /**
+             * Usemanagedagent
+             * @default true
+             */
+            useManagedAgent: boolean;
+            /** Allowedtools */
+            allowedTools?: string[] | null;
+        };
+        /**
+         * DiffProviderMode
+         * @enum {string}
+         */
+        DiffProviderMode: "managed_agent" | "simulator";
+        /** DiffResult */
+        DiffResult: {
+            /** Id */
+            id: string;
+            providerMode: components["schemas"]["DiffProviderMode"];
+            status: components["schemas"]["DiffStatus"];
+            /** Promptbefore */
+            promptBefore: string;
+            /** Promptafter */
+            promptAfter: string;
+            /** Unifieddiff */
+            unifiedDiff: string;
+            /** Interactionid */
+            interactionId?: string | null;
+            /** Environmentid */
+            environmentId?: string | null;
+            toolRoute: components["schemas"]["ToolRoute"];
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt?: string;
+            /** Targetpath */
+            targetPath?: string | null;
+            /** Prurl */
+            prUrl?: string | null;
+        };
+        /**
+         * DiffStatus
+         * @enum {string}
+         */
+        DiffStatus: "ready" | "pr_requested" | "pr_created" | "failed";
         /** Finding */
         Finding: {
             /** Id */
@@ -270,6 +372,37 @@ export interface components {
             toolPolicyDiff: components["schemas"]["PolicyDiff"];
             /** Regressiontests */
             regressionTests: string[];
+        };
+        /** RequestPrResponse */
+        RequestPrResponse: {
+            /** Id */
+            id: string;
+            providerMode: components["schemas"]["DiffProviderMode"];
+            status: components["schemas"]["DiffStatus"];
+            /** Promptbefore */
+            promptBefore: string;
+            /** Promptafter */
+            promptAfter: string;
+            /** Unifieddiff */
+            unifiedDiff: string;
+            /** Interactionid */
+            interactionId?: string | null;
+            /** Environmentid */
+            environmentId?: string | null;
+            toolRoute: components["schemas"]["ToolRoute"];
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt?: string;
+            /** Targetpath */
+            targetPath?: string | null;
+            /** Prurl */
+            prUrl?: string | null;
+            /** Branch */
+            branch?: string | null;
+            /** Commitsha */
+            commitSha?: string | null;
         };
         /**
          * RiskProfile
@@ -359,6 +492,20 @@ export interface components {
          * @enum {string}
          */
         Severity: "low" | "medium" | "high" | "critical";
+        /** ToolRoute */
+        ToolRoute: {
+            /** Requestedtools */
+            requestedTools: string[];
+            /** Observedtools */
+            observedTools: string[];
+            /** Violations */
+            violations: string[];
+            /**
+             * Rawstepcount
+             * @default 0
+             */
+            rawStepCount: number;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -591,6 +738,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApproveFixResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_diff_v1_diffs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiffCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiffResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    request_diff_pr_v1_diffs__diff_id__request_pr_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diff_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestPrResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    managed_agent_tool_routing_smoke_v1_managed_agent_tool_routing_smoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiffCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiffResult"];
                 };
             };
             /** @description Validation Error */

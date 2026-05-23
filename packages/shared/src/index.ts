@@ -12,6 +12,8 @@ export type RunStatus = "queued" | "running" | "completed" | "failed";
 export type Severity = "low" | "medium" | "high" | "critical";
 export type RunEventActor = "system" | "attacker" | "target_agent" | "sandbox" | "defender";
 export type PolicyDecision = "allowed" | "blocked" | "flagged";
+export type DiffProviderMode = "managed_agent" | "simulator";
+export type DiffStatus = "ready" | "pr_requested" | "pr_created" | "failed";
 
 export interface SandboxPolicy {
   allowedTools: string[];
@@ -118,4 +120,38 @@ export interface ApproveFixResponse {
   applied: boolean;
   agent: AgentSpec;
   message: string;
+}
+
+export interface ToolRoute {
+  requestedTools: string[];
+  observedTools: string[];
+  violations: string[];
+  rawStepCount: number;
+}
+
+export interface DiffCreate {
+  prompt: string;
+  targetPath?: string | null;
+  useManagedAgent: boolean;
+  allowedTools?: string[] | null;
+}
+
+export interface DiffResult {
+  id: string;
+  providerMode: DiffProviderMode;
+  status: DiffStatus;
+  promptBefore: string;
+  promptAfter: string;
+  unifiedDiff: string;
+  interactionId?: string | null;
+  environmentId?: string | null;
+  toolRoute: ToolRoute;
+  createdAt: string;
+  targetPath?: string | null;
+  prUrl?: string | null;
+}
+
+export interface RequestPrResponse extends DiffResult {
+  branch?: string | null;
+  commitSha?: string | null;
 }

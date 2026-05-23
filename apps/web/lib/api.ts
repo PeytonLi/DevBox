@@ -2,8 +2,11 @@ import type {
   AgentSpec,
   ApproveFixRequest,
   ApproveFixResponse,
+  DiffCreate,
+  DiffResult,
   ModelConfig,
   Report,
+  RequestPrResponse,
   Run,
   RunCreate,
   Scenario
@@ -51,6 +54,20 @@ export const api = {
   getReport: (runId: string) => request<Report>(`/v1/runs/${runId}/report`),
   approveFix: (runId: string, payload: ApproveFixRequest) =>
     request<ApproveFixResponse>(`/v1/runs/${runId}/approve-fix`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  createDiff: (payload: DiffCreate) =>
+    request<DiffResult>("/v1/diffs", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  requestPr: (diffId: string) =>
+    request<RequestPrResponse>(`/v1/diffs/${diffId}/request-pr`, {
+      method: "POST"
+    }),
+  toolRoutingSmoke: (payload: DiffCreate) =>
+    request<DiffResult>("/v1/managed-agent/tool-routing-smoke", {
       method: "POST",
       body: JSON.stringify(payload)
     })

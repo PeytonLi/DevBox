@@ -10,14 +10,19 @@ from .contracts import (
     AgentSpec,
     ApproveFixRequest,
     ApproveFixResponse,
+    DiffCreate,
+    DiffResult,
     HealthResponse,
     ModelConfig,
+    RequestPrResponse,
     Report,
     Run,
     RunCreate,
     RunEvent,
     Scenario,
 )
+from .diff_manager import DiffManager, DiffManagerError
+from .managed_agents import ManagedAgentClient
 from .registries import ProviderRegistry, ScenarioRegistry
 from .run_manager import RunManager, RunManagerError
 
@@ -30,7 +35,10 @@ async def lifespan(app: FastAPI):
     providers = ProviderRegistry.from_config()
     scenarios = ScenarioRegistry.from_config()
     app.state.run_manager = RunManager(providers, scenarios)
+    app.state.managed_agents = ManagedAgentClient.from_env()
+    app.state.diff_manager = DiffManager(app.state.managed_agents)
     yield
+    app.state.managed_agents.close()
 
 
 app = FastAPI(
@@ -62,6 +70,14 @@ def manager_from(request: Request) -> RunManager:
 
 
 def raise_for_manager_error(exc: RunManagerError) -> None:
+    raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
+def diff_manager_from(request: Request) -> DiffManager:
+    return request.app.state.diff_manager
+
+
+def raise_for_diff_error(exc: DiffManagerError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
 
@@ -121,6 +137,30 @@ async def approve_fix(run_id: str, payload: ApproveFixRequest, request: Request)
         return await manager_from(request).approve_fix(run_id, payload)
     except RunManagerError as exc:
         raise_for_manager_error(exc)
+
+
+@app.post("/v1/diffs", response_model=DiffResult, status_code=201)
+async def create_diff(payload: DiffCreate, request: Request) -> DiffResult:
+    try:
+        return await diff_manager_from(request).create_diff(payload)
+    except DiffManagerError as exc:
+        raise_for_diff_error(exc)
+
+
+@app.post("/v1/diffs/{diff_id}/request-pr", response_model=RequestPrResponse)
+async def request_diff_pr(diff_id: str, request: Request) -> RequestPrResponse:
+    try:
+        return await diff_manager_from(request).request_pr(diff_id)
+    except DiffManagerError as exc:
+        raise_for_diff_error(exc)
+
+
+@app.post("/v1/managed-agent/tool-routing-smoke", response_model=DiffResult)
+async def managed_agent_tool_routing_smoke(payload: DiffCreate, request: Request) -> DiffResult:
+    try:
+        return await diff_manager_from(request).tool_routing_smoke(payload)
+    except DiffManagerError as exc:
+        raise_for_diff_error(exc)
 
 
 @app.websocket("/v1/runs/{run_id}/events")

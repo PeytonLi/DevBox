@@ -1,0 +1,181 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { Buffer } from "node:buffer";
+import { createAppAuth } from "@octokit/auth-app";
+import { Octokit } from "@octokit/rest";
+
+export const runtime = "nodejs";
+
+interface DiffWebhookPayload {
+  diffId: string;
+  promptAfter: string;
+  unifiedDiff: string;
+  targetPath?: string;
+  title?: string;
+}
+
+const DEFAULT_REPOSITORY = "PeytonLi/DevBox";
+const DEFAULT_TARGET_PATH = ".agents/AGENTS.md";
+
+export async function POST(request: Request) {
+  const rawBody = await request.text();
+  const secret = process.env.DEVBOX_PR_WEBHOOK_SECRET;
+
+  if (!secret) {
+    return Response.json({ error: "GitHub PR creation unavailable" }, { status: 503 });
+  }
+
+  const signature = request.headers.get("x-devbox-signature");
+  if (!signature || !verifySignature(rawBody, signature, secret)) {
+    return Response.json({ error: "Invalid webhook signature" }, { status: 401 });
+  }
+
+  const missing = requiredGithubEnv().filter((key) => !process.env[key]);
+  if (missing.length > 0) {
+    return Response.json(
+      { error: `GitHub PR creation unavailable: missing ${missing.join(", ")}` },
+      { status: 503 }
+    );
+  }
+
+  let payload: DiffWebhookPayload;
+  try {
+    payload = JSON.parse(rawBody) as DiffWebhookPayload;
+  } catch {
+    return Response.json({ error: "Invalid JSON payload" }, { status: 400 });
+  }
+
+  if (!payload.diffId || !payload.promptAfter) {
+    return Response.json({ error: "Payload requires diffId and promptAfter" }, { status: 400 });
+  }
+
+  const { owner, repo } = repositoryTarget();
+  const baseBranch = process.env.GITHUB_BASE_BRANCH || "main";
+  const targetPath = payload.targetPath || process.env.DEVBOX_TARGET_PROMPT_PATH || DEFAULT_TARGET_PATH;
+  const branch = `codex/devbox-diff-${payload.diffId}`;
+  const octokit = new Octokit({
+    authStrategy: createAppAuth,
+    auth: {
+      appId: process.env.GITHUB_APP_ID,
+      privateKey: normalizePrivateKey(process.env.GITHUB_APP_PRIVATE_KEY || ""),
+      installationId: process.env.GITHUB_APP_INSTALLATION_ID
+    }
+  });
+
+  const { data: base } = await octokit.rest.repos.getBranch({ owner, repo, branch: baseBranch });
+  await createOrResetBranch(octokit, owner, repo, branch, base.commit.sha);
+
+  const sha = await existingFileSha(octokit, owner, repo, targetPath, branch);
+  const { data: file } = await octokit.rest.repos.createOrUpdateFileContents({
+    owner,
+    repo,
+    path: targetPath,
+    branch,
+    message: payload.title || "chore: apply DevBox prompt hardening diff",
+    content: Buffer.from(payload.promptAfter, "utf8").toString("base64"),
+    sha
+  });
+
+  const { data: pr } = await octokit.rest.pulls.create({
+    owner,
+    repo,
+    title: payload.title || "chore: apply DevBox prompt hardening diff",
+    head: branch,
+    base: baseBranch,
+    body: prBody(payload, targetPath)
+  });
+
+  return Response.json({
+    prUrl: pr.html_url,
+    branch,
+    commitSha: file.commit.sha
+  });
+}
+
+function verifySignature(rawBody: string, signature: string, secret: string) {
+  const expected = `sha256=${createHmac("sha256", secret).update(rawBody).digest("hex")}`;
+  const expectedBytes = Buffer.from(expected);
+  const actualBytes = Buffer.from(signature);
+  return expectedBytes.length === actualBytes.length && timingSafeEqual(expectedBytes, actualBytes);
+}
+
+function requiredGithubEnv() {
+  return ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_INSTALLATION_ID"];
+}
+
+function repositoryTarget() {
+  const repository = process.env.GITHUB_REPOSITORY || DEFAULT_REPOSITORY;
+  const [owner, repo] = repository.split("/");
+  return {
+    owner: process.env.GITHUB_OWNER || owner,
+    repo: process.env.GITHUB_REPO || repo
+  };
+}
+
+function normalizePrivateKey(value: string) {
+  return value.replace(/\\n/g, "\n");
+}
+
+async function createOrResetBranch(octokit: Octokit, owner: string, repo: string, branch: string, sha: string) {
+  try {
+    await octokit.rest.git.createRef({
+      owner,
+      repo,
+      ref: `refs/heads/${branch}`,
+      sha
+    });
+  } catch (error) {
+    if (isGithubStatus(error, 422)) {
+      await octokit.rest.git.updateRef({
+        owner,
+        repo,
+        ref: `heads/${branch}`,
+        sha,
+        force: false
+      });
+      return;
+    }
+    throw error;
+  }
+}
+
+async function existingFileSha(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  path: string,
+  branch: string
+) {
+  try {
+    const { data } = await octokit.rest.repos.getContent({
+      owner,
+      repo,
+      path,
+      ref: branch
+    });
+    if (!Array.isArray(data) && "sha" in data) {
+      return data.sha;
+    }
+  } catch (error) {
+    if (!isGithubStatus(error, 404)) {
+      throw error;
+    }
+  }
+  return undefined;
+}
+
+function isGithubStatus(error: unknown, status: number) {
+  return typeof error === "object" && error !== null && "status" in error && error.status === status;
+}
+
+function prBody(payload: DiffWebhookPayload, targetPath: string) {
+  return [
+    "Generated by DevBox after explicit diff approval.",
+    "",
+    `Target path: \`${targetPath}\``,
+    `Diff id: \`${payload.diffId}\``,
+    "",
+    "```diff",
+    payload.unifiedDiff.trim(),
+    "```"
+  ].join("\n");
+}

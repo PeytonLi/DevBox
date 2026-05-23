@@ -80,6 +80,18 @@ class PolicyDecision(StrEnum):
     FLAGGED = "flagged"
 
 
+class DiffProviderMode(StrEnum):
+    MANAGED_AGENT = "managed_agent"
+    SIMULATOR = "simulator"
+
+
+class DiffStatus(StrEnum):
+    READY = "ready"
+    PR_REQUESTED = "pr_requested"
+    PR_CREATED = "pr_created"
+    FAILED = "failed"
+
+
 class SandboxPolicy(ApiModel):
     allowed_tools: list[str] = Field(default_factory=lambda: ["browser.open", "browser.read", "rag.search"])
     allowed_domains: list[str] = Field(default_factory=lambda: ["example.com", "docs.example.com"])
@@ -191,3 +203,37 @@ class HealthResponse(ApiModel):
     status: Literal["ok"]
     service: str
     version: str
+
+
+class ToolRoute(ApiModel):
+    requested_tools: list[str]
+    observed_tools: list[str]
+    violations: list[str]
+    raw_step_count: int = 0
+
+
+class DiffCreate(ApiModel):
+    prompt: str = Field(min_length=20, max_length=12000)
+    target_path: str | None = None
+    use_managed_agent: bool = True
+    allowed_tools: list[str] | None = None
+
+
+class DiffResult(ApiModel):
+    id: str
+    provider_mode: DiffProviderMode
+    status: DiffStatus
+    prompt_before: str
+    prompt_after: str
+    unified_diff: str
+    interaction_id: str | None = None
+    environment_id: str | None = None
+    tool_route: ToolRoute
+    created_at: datetime = Field(default_factory=utc_now)
+    target_path: str | None = None
+    pr_url: str | None = None
+
+
+class RequestPrResponse(DiffResult):
+    branch: str | None = None
+    commit_sha: str | None = None

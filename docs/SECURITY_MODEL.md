@@ -22,3 +22,10 @@ DevBox tests agents in an authorized sandbox. The MVP uses deterministic simulat
 ## Provider Defaults
 
 Provider model entries are config-driven. Cloud providers are disabled until the related API key is present. Local models are disabled until a local runner URL is configured.
+
+## Diff-To-PR Boundary
+
+- Prompt hardening uses a live Google Managed Agent only when `GEMINI_API_KEY` is configured; otherwise it uses the deterministic simulator.
+- GitHub PR creation requires an explicit user action through `POST /v1/diffs/{diff_id}/request-pr`.
+- FastAPI signs the internal PR webhook with `DEVBOX_PR_WEBHOOK_SECRET`; the Next.js Octokit route rejects missing or invalid signatures.
+- PR output writes only the approved prompt diff to the configured target path and does not include private prompts beyond the approved file contents.
