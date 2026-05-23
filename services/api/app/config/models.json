@@ -1,0 +1,67 @@
+[
+  {
+    "provider": "local",
+    "model_id": "devbox-simulated-local",
+    "display_name": "DevBox Simulated Local",
+    "capabilities": ["private_execution", "deterministic_testing", "offline_review"],
+    "privacy_note": "Built-in simulator for local workflow testing. No provider calls are made.",
+    "cost_tier": "local",
+    "risk_profile": "local",
+    "supports_tools": false
+  },
+  {
+    "provider": "google",
+    "model_id": "gemini-3.5-flash",
+    "display_name": "Gemini 3.5 Flash",
+    "capabilities": ["fast_reasoning", "tool_use", "large_context"],
+    "privacy_note": "Cloud model. Enable only for data that can leave the local machine.",
+    "cost_tier": "low",
+    "risk_profile": "cloud",
+    "supports_tools": true,
+    "required_env": "GOOGLE_API_KEY"
+  },
+  {
+    "provider": "google",
+    "model_id": "gemini-3.1-pro",
+    "display_name": "Gemini 3.1 Pro",
+    "capabilities": ["deep_reasoning", "tool_use", "large_context"],
+    "privacy_note": "Cloud model. Enable only for data that can leave the local machine.",
+    "cost_tier": "high",
+    "risk_profile": "cloud",
+    "supports_tools": true,
+    "required_env": "GOOGLE_API_KEY"
+  },
+  {
+    "provider": "openai",
+    "model_id": "openai-security-reviewer",
+    "display_name": "OpenAI Security Reviewer",
+    "capabilities": ["deep_reasoning", "tool_use", "structured_outputs"],
+    "privacy_note": "Cloud model. Use for managed tests where policy permits provider processing.",
+    "cost_tier": "medium",
+    "risk_profile": "cloud",
+    "supports_tools": true,
+    "required_env": "OPENAI_API_KEY"
+  },
+  {
+    "provider": "anthropic",
+    "model_id": "anthropic-agent-auditor",
+    "display_name": "Anthropic Agent Auditor",
+    "capabilities": ["policy_analysis", "tool_use", "long_context"],
+    "privacy_note": "Cloud model. Use for policy and trace review when provider use is approved.",
+    "cost_tier": "medium",
+    "risk_profile": "cloud",
+    "supports_tools": true,
+    "required_env": "ANTHROPIC_API_KEY"
+  },
+  {
+    "provider": "local",
+    "model_id": "gemma-4-local",
+    "display_name": "Gemma 4 Local",
+    "capabilities": ["private_execution", "offline_review"],
+    "privacy_note": "Local runner. Designed for sensitive code and internal agent traces.",
+    "cost_tier": "local",
+    "risk_profile": "local",
+    "supports_tools": false,
+    "required_env": "LOCAL_MODEL_BASE_URL"
+  }
+]

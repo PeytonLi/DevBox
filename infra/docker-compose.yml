@@ -1,0 +1,19 @@
+services:
+  api:
+    build:
+      context: ../services/api
+    ports:
+      - "8000:8000"
+    environment:
+      DEVBOX_ALLOWED_ORIGINS: http://localhost:3000
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LOCAL_MODEL_BASE_URL: ${LOCAL_MODEL_BASE_URL:-}
+
+  sandbox-smoke:
+    build:
+      context: ..
+      dockerfile: infra/sandbox/Dockerfile
+    command: ["--self-test"]
+    network_mode: "none"
