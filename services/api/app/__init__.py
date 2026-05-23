@@ -1,1 +1,1 @@
-"""DevBox FastAPI service."""
+"""AgentSecure FastAPI service."""

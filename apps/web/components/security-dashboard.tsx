@@ -5,56 +5,56 @@ import {
   AlertTriangle,
   Bot,
   Check,
-  Code2,
+  ChevronRight,
+  Cpu,
   Database,
-  FileDiff,
   FileSearch,
   GitBranch,
-  GitPullRequestArrow,
+  Layers,
   ListChecks,
   LockKeyhole,
   Play,
   RefreshCw,
-  Route,
+  ScanSearch,
   Server,
+  Shield,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Terminal,
   Upload,
-  Wrench
+  Wrench,
+  Zap
 } from "lucide-react";
 import type {
   AdminSessionResponse,
   AgentImportRecord,
   AgentSpec,
-  DiffResult,
+  ComplianceMapping,
   GitHubImportSource,
   ModelConfig,
   Report,
-  RequestPrResponse,
   Run,
   RunEvent,
+  ScannerResult,
   Scenario,
   TargetAgentTemplate
 } from "@devbox/shared";
 import { api, webSocketUrl } from "@/lib/api";
 
-type Lane = "diff" | "targets";
 type Phase =
   | "idle"
   | "loading"
-  | "generating"
-  | "creating-pr"
-  | "smoke"
   | "importing"
   | "registering"
   | "running"
   | "approving"
   | "error";
 
-const defaultPrompt =
-  "You are a browser research agent. Follow protected instructions, use only approved tools, and protect secrets in every response.";
-const toolOptions = ["code_execution", "url_context", "google_search"];
+type ImportTab = "template" | "github" | "local";
+type PipelineStageId = "router" | "engines" | "sandbox" | "compliance";
+type StageStatus = "pending" | "active" | "done" | "error";
+
 const defaultImportManifest = JSON.stringify(
   {
     name: "Imported Browser Agent",
@@ -64,22 +64,43 @@ const defaultImportManifest = JSON.stringify(
     tools: ["browser.open", "browser.read"],
     allowedDomains: ["example.com", "docs.example.com"],
     filesystemScope: "/workspace/imported-agent",
-    honeytokens: ["DEVBOX_FAKE_SECRET", "sk-devbox-honeytoken"]
+    honeytokens: ["AGENTSECURE_FAKE_SECRET", "sk-agentsecure-honeytoken"]
   },
   null,
   2
 );
 
+const PIPELINE_STAGES: { id: PipelineStageId; label: string; highlight: string; icon: ReactNode }[] = [
+  {
+    id: "router",
+    label: "Risk Router",
+    highlight: "Gemini 3.5 Flash intercepts input, scores threat severity, and splits workloads.",
+    icon: <Zap size={16} />
+  },
+  {
+    id: "engines",
+    label: "Multi-Engine Scan",
+    highlight: "Gemma 4 local · Gemini Pro · Garak / Llama Guard run in parallel.",
+    icon: <Layers size={16} />
+  },
+  {
+    id: "sandbox",
+    label: "Attack & Defend",
+    highlight: "Managed Agent sandbox runs OWASP LLM Top 10 adversarial duet.",
+    icon: <ShieldAlert size={16} />
+  },
+  {
+    id: "compliance",
+    label: "Compliance Report",
+    highlight: "Findings mapped to NIST AI RMF and ISO/IEC 42001 controls.",
+    icon: <ShieldCheck size={16} />
+  }
+];
+
 export function SecurityDashboard() {
-  const [lane, setLane] = useState<Lane>("diff");
   const [phase, setPhase] = useState<Phase>("loading");
   const [session, setSession] = useState<AdminSessionResponse | null>(null);
-  const [prompt, setPrompt] = useState(defaultPrompt);
-  const [targetPath, setTargetPath] = useState(".agents/AGENTS.md");
-  const [useManagedAgent, setUseManagedAgent] = useState(true);
-  const [allowedTools, setAllowedTools] = useState(["code_execution", "url_context"]);
-  const [diff, setDiff] = useState<DiffResult | null>(null);
-  const [smoke, setSmoke] = useState<DiffResult | null>(null);
+  const [importTab, setImportTab] = useState<ImportTab>("template");
   const [models, setModels] = useState<ModelConfig[]>([]);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [targetAgents, setTargetAgents] = useState<TargetAgentTemplate[]>([]);
@@ -89,7 +110,7 @@ export function SecurityDashboard() {
   const [registeredAgent, setRegisteredAgent] = useState<AgentSpec | null>(null);
   const [githubSource, setGithubSource] = useState<GitHubImportSource>({
     owner: "PeytonLi",
-    repo: "DevBox",
+    repo: "AgentSecure",
     ref: "main",
     promptPath: ".agents/AGENTS.md",
     manifestPath: ".devbox/agent.json"
@@ -104,7 +125,6 @@ export function SecurityDashboard() {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [report, setReport] = useState<Report | null>(null);
   const [approvalMessage, setApprovalMessage] = useState<string | null>(null);
-  const [runPr, setRunPr] = useState<RequestPrResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
 
@@ -116,9 +136,7 @@ export function SecurityDashboard() {
       setError(null);
       try {
         const sessionData = await api.getSession();
-        if (!mounted) {
-          return;
-        }
+        if (!mounted) return;
         setSession(sessionData);
         if (!sessionData.authenticated) {
           setPhase("idle");
@@ -129,9 +147,7 @@ export function SecurityDashboard() {
           api.listScenarios(),
           api.listTargetAgents()
         ]);
-        if (!mounted) {
-          return;
-        }
+        if (!mounted) return;
         setModels(modelData);
         setScenarios(scenarioData);
         setTargetAgents(targetData);
@@ -140,10 +156,8 @@ export function SecurityDashboard() {
         setSelectedScenarioIds(targetData[0]?.recommendedScenarioIds ?? scenarioData.map((scenario) => scenario.id));
         setPhase("idle");
       } catch (loadError) {
-        if (!mounted) {
-          return;
-        }
-        setError(loadError instanceof Error ? loadError.message : "Could not load DevBox options.");
+        if (!mounted) return;
+        setError(loadError instanceof Error ? loadError.message : "Could not load AgentSecure options.");
         setPhase("error");
       }
     }
@@ -163,68 +177,12 @@ export function SecurityDashboard() {
     () => models.find((model) => model.modelId === selectedModelId) ?? null,
     [selectedModelId, models]
   );
-  const routeStatus = useMemo(() => {
-    const route = diff?.toolRoute ?? smoke?.toolRoute;
-    if (!route) {
-      return "not checked";
-    }
-    return route.violations.length === 0 ? "verified" : "blocked";
-  }, [diff, smoke]);
   const requiresCloudApproval = selectedModel?.riskProfile === "cloud";
   const missingCloudApproval = requiresCloudApproval && !allowCloudAnalysis;
+  const activeAgent = registeredAgent ?? selectedTarget?.agentSpec ?? null;
+  const agentLabel = selectedTarget?.name ?? registeredAgent?.name ?? "No agent selected";
 
-  async function generateDiff() {
-    setPhase("generating");
-    setError(null);
-    setDiff(null);
-    try {
-      const result = await api.createDiff({
-        prompt,
-        targetPath,
-        useManagedAgent,
-        allowedTools
-      });
-      setDiff(result);
-      setPhase("idle");
-    } catch (generateError) {
-      setError(generateError instanceof Error ? generateError.message : "Could not generate diff.");
-      setPhase("error");
-    }
-  }
-
-  async function runSmokeCheck() {
-    setPhase("smoke");
-    setError(null);
-    try {
-      const result = await api.toolRoutingSmoke({
-        prompt,
-        targetPath,
-        useManagedAgent,
-        allowedTools
-      });
-      setSmoke(result);
-      setPhase("idle");
-    } catch (smokeError) {
-      setError(smokeError instanceof Error ? smokeError.message : "Could not verify tool routing.");
-      setPhase("error");
-    }
-  }
-
-  async function createPr() {
-    if (!diff) {
-      return;
-    }
-    setPhase("creating-pr");
-    setError(null);
-    try {
-      const result = await api.requestPr(diff.id);
-      setDiff(result);
-      setPhase("idle");
-    } catch (prError) {
-      setError(prError instanceof Error ? prError.message : "GitHub PR creation unavailable.");
-      setPhase("error");
-    }
-  }
+  const stageStatuses = useMemo(() => deriveStageStatuses(phase, events, report), [phase, events, report]);
 
   async function runTargetAssessment() {
     if (!selectedModel || selectedScenarioIds.length === 0 || (!selectedTarget && !registeredAgent)) {
@@ -239,7 +197,6 @@ export function SecurityDashboard() {
     }
 
     socketRef.current?.close();
-    setLane("targets");
     setPhase("registering");
     setError(null);
     setEvents([]);
@@ -249,9 +206,7 @@ export function SecurityDashboard() {
 
     try {
       const agent = selectedTarget ? await api.registerTargetAgent(selectedTarget.id) : registeredAgent;
-      if (!agent?.id) {
-        throw new Error("Imported agent is not ready.");
-      }
+      if (!agent?.id) throw new Error("Imported agent is not ready.");
       setRegisteredAgent(agent);
       setPhase("running");
       const createdRun = await api.createRun({
@@ -261,12 +216,10 @@ export function SecurityDashboard() {
         allowCloudAnalysis: selectedModel.riskProfile === "cloud" && allowCloudAnalysis
       });
       setRun(createdRun);
-      if (selectedModel.riskProfile === "cloud") {
-        setAllowCloudAnalysis(false);
-      }
+      if (selectedModel.riskProfile === "cloud") setAllowCloudAnalysis(false);
       await connectRunStream(createdRun.id);
     } catch (runError) {
-      setError(runError instanceof Error ? runError.message : "Could not start target-agent assessment.");
+      setError(runError instanceof Error ? runError.message : "Could not start agent scan.");
       setPhase("error");
     }
   }
@@ -277,26 +230,20 @@ export function SecurityDashboard() {
     setImportWarnings([]);
     try {
       const manifestText = importManifest.trim();
-      if (!manifestText) {
-        throw new Error("Agent manifest is empty.");
-      }
+      if (!manifestText) throw new Error("Agent manifest is empty.");
       JSON.parse(manifestText);
       const manifest = new File([manifestText], manifestFileName.endsWith(".json") ? manifestFileName : "agent.json", {
         type: "application/json"
       });
       const imported = await api.importAgentProject(manifest, promptFile);
-      setLane("targets");
+      setImportTab("local");
       setSelectedTargetId("");
       setRegisteredAgent(imported.agent);
       setSelectedScenarioIds(
-        imported.recommendedScenarioIds.length > 0 ? imported.recommendedScenarioIds : scenarios.map((scenario) => scenario.id)
+        imported.recommendedScenarioIds.length > 0 ? imported.recommendedScenarioIds : scenarios.map((s) => s.id)
       );
-      setRun(null);
-      setEvents([]);
-      setReport(null);
-      setRunPr(null);
+      resetRunState();
       setGithubImport(null);
-      setApprovalMessage(null);
       setImportWarnings(imported.warnings);
       setPhase("idle");
     } catch (importError) {
@@ -305,10 +252,37 @@ export function SecurityDashboard() {
     }
   }
 
-  async function loadManifestFile(file: File | null) {
-    if (!file) {
-      return;
+  async function importGitHubAgent() {
+    setPhase("importing");
+    setError(null);
+    setImportWarnings([]);
+    try {
+      const imported = await api.importGitHubAgent(githubSource);
+      setImportTab("github");
+      setSelectedTargetId("");
+      setRegisteredAgent(imported.agent);
+      setGithubImport(imported);
+      setSelectedScenarioIds(
+        imported.recommendedScenarioIds.length > 0 ? imported.recommendedScenarioIds : scenarios.map((s) => s.id)
+      );
+      resetRunState();
+      setImportWarnings(imported.warnings);
+      setPhase("idle");
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : "Could not import GitHub agent.");
+      setPhase("error");
     }
+  }
+
+  function resetRunState() {
+    setRun(null);
+    setEvents([]);
+    setReport(null);
+    setApprovalMessage(null);
+  }
+
+  async function loadManifestFile(file: File | null) {
+    if (!file) return;
     setManifestFileName(file.name);
     setImportManifest(await file.text());
   }
@@ -382,15 +356,13 @@ export function SecurityDashboard() {
       }
       setPhase("idle");
     } catch (reportError) {
-      setError(reportError instanceof Error ? reportError.message : "Could not load target-agent report.");
+      setError(reportError instanceof Error ? reportError.message : "Could not load scan report.");
       setPhase("error");
     }
   }
 
   async function approveTargetFix() {
-    if (!run || !report) {
-      return;
-    }
+    if (!run || !report) return;
     setPhase("approving");
     setError(null);
     try {
@@ -402,75 +374,17 @@ export function SecurityDashboard() {
       setApprovalMessage(response.message);
       setPhase("idle");
     } catch (approvalError) {
-      setError(approvalError instanceof Error ? approvalError.message : "Could not approve target-agent fixes.");
+      setError(approvalError instanceof Error ? approvalError.message : "Could not apply remediation.");
       setPhase("error");
     }
-  }
-
-  async function approveTargetPr() {
-    if (!run || !report) {
-      return;
-    }
-    setPhase("creating-pr");
-    setError(null);
-    try {
-      const response = await api.approveRunPr(run.id, {
-        acceptedDiffIds: [report.promptDiff.id],
-        applyToAgent: false
-      });
-      setRunPr(response);
-      setApprovalMessage("Prompt remediation approved and PR requested.");
-      setPhase("idle");
-    } catch (prError) {
-      setError(prError instanceof Error ? prError.message : "Could not create target-agent PR.");
-      setPhase("error");
-    }
-  }
-
-  async function importGitHubAgent() {
-    setPhase("importing");
-    setError(null);
-    setImportWarnings([]);
-    try {
-      const imported = await api.importGitHubAgent(githubSource);
-      setLane("targets");
-      setSelectedTargetId("");
-      setRegisteredAgent(imported.agent);
-      setGithubImport(imported);
-      setSelectedScenarioIds(
-        imported.recommendedScenarioIds.length > 0 ? imported.recommendedScenarioIds : scenarios.map((scenario) => scenario.id)
-      );
-      setRun(null);
-      setEvents([]);
-      setReport(null);
-      setRunPr(null);
-      setApprovalMessage(null);
-      setImportWarnings(imported.warnings);
-      setPhase("idle");
-    } catch (importError) {
-      setError(importError instanceof Error ? importError.message : "Could not import GitHub agent.");
-      setPhase("error");
-    }
-  }
-
-  function toggleTool(tool: string) {
-    setAllowedTools((current) => {
-      if (current.includes(tool)) {
-        return current.filter((item) => item !== tool);
-      }
-      return [...current, tool];
-    });
   }
 
   function selectTarget(target: TargetAgentTemplate) {
+    setImportTab("template");
     setSelectedTargetId(target.id);
     setSelectedScenarioIds(target.recommendedScenarioIds);
     setRegisteredAgent(null);
-    setRun(null);
-    setEvents([]);
-    setReport(null);
-    setApprovalMessage(null);
-    setRunPr(null);
+    resetRunState();
     setGithubImport(null);
     setImportWarnings([]);
   }
@@ -481,12 +395,9 @@ export function SecurityDashboard() {
   }
 
   function toggleScenario(scenarioId: string) {
-    setSelectedScenarioIds((current) => {
-      if (current.includes(scenarioId)) {
-        return current.filter((item) => item !== scenarioId);
-      }
-      return [...current, scenarioId];
-    });
+    setSelectedScenarioIds((current) =>
+      current.includes(scenarioId) ? current.filter((id) => id !== scenarioId) : [...current, scenarioId]
+    );
   }
 
   if (session && !session.authenticated) {
@@ -496,9 +407,9 @@ export function SecurityDashboard() {
           <div className="brand-mark">
             <ShieldCheck size={24} />
           </div>
-          <span className="eyebrow">DevBox production pilot</span>
+          <span className="eyebrow">AgentSecure</span>
           <h1>Admin login required</h1>
-          <p>Use the allowlisted GitHub account before importing repositories, running assessments, or approving PRs.</p>
+          <p>Use the allowlisted GitHub account before importing agents and running security scans.</p>
           <a className="primary-button login-button" href={session.loginUrl}>
             <GitBranch size={18} />
             Continue with GitHub
@@ -508,47 +419,38 @@ export function SecurityDashboard() {
     );
   }
 
+  const isScanning = phase === "registering" || phase === "running";
+
   return (
     <main className="shell">
       <aside className="sidebar" aria-label="Workspace navigation">
         <div className="brand">
           <div className="brand-mark">
-            <ShieldCheck size={21} />
+            <Shield size={21} />
           </div>
           <div>
-            <span className="brand-kicker">DevBox</span>
-            <strong>{lane === "diff" ? "Diff Workbench" : "Agent Test Lab"}</strong>
+            <span className="brand-kicker">AgentSecure</span>
+            <strong>Agent Scan</strong>
           </div>
         </div>
         <nav className="nav-list">
-          <LaneItem active={lane === "diff"} icon={<FileDiff size={17} />} label="Diff workbench" onClick={() => setLane("diff")} />
-          <LaneItem active={lane === "targets"} icon={<Server size={17} />} label="Target agents" onClick={() => setLane("targets")} />
-          <a className="nav-item" href="#routing">
-            <Route size={17} />
-            <span>Tool routing</span>
-          </a>
-          <a className="nav-item" href={lane === "diff" ? "#github" : "#target-report"}>
-            <GitPullRequestArrow size={17} />
-            <span>{lane === "diff" ? "GitHub PR" : "Fix approval"}</span>
-          </a>
-          {lane === "targets" ? (
-            <a className="nav-item" href="#import-agent">
-              <Upload size={17} />
-              <span>Import agent</span>
-            </a>
-          ) : null}
+          <NavAnchor href="#configure" icon={<Bot size={17} />} label="Configure agent" />
+          <NavAnchor href="#engine" icon={<Cpu size={17} />} label="Scan engine" />
+          <NavAnchor href="#scenarios" icon={<ListChecks size={17} />} label="Attack scenarios" />
+          <NavAnchor href="#pipeline" icon={<ScanSearch size={17} />} label="Live pipeline" />
+          <NavAnchor href="#results" icon={<ShieldCheck size={17} />} label="Security report" />
         </nav>
         <div className="sidebar-card">
           <div className="sidebar-status">
             <LockKeyhole size={18} />
             <div>
-              <strong>Authorized lab</strong>
-              <span>Local mock targets with fake data</span>
+              <strong>Dual-engine security</strong>
+              <span>Cloud router + local privacy sandbox</span>
             </div>
           </div>
           <div className="sidebar-metric">
-            <span>{lane === "diff" ? "Provider mode" : "Run score"}</span>
-            <strong>{lane === "diff" ? diff?.providerMode.replace("_", " ") ?? "Auto" : report ? `${report.score}/100` : "Pending"}</strong>
+            <span>Security score</span>
+            <strong>{report ? `${report.score}/100` : isScanning ? "Scanning…" : "—"}</strong>
           </div>
         </div>
       </aside>
@@ -556,62 +458,31 @@ export function SecurityDashboard() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <span className="eyebrow">{lane === "diff" ? "Managed Agent diff lane" : "Production-like target lane"}</span>
-            <h1>{lane === "diff" ? "Prompt Input to Diff Output" : "Target Agent Test Lab"}</h1>
+            <span className="eyebrow">Hybrid multi-model agent security</span>
+            <h1>Agent Scan</h1>
             <p>
-              {lane === "diff"
-                ? "Generate a prompt hardening diff, verify remote tool routing, then open a GitHub PR."
-                : "Run synthetic production agents through sandboxed attack scenarios, live traces, and fix approval."}
+              Route workloads through Gemini 3.5 Flash, scan with local Gemma 4 and open-source tools, run adversarial
+              attack/defend in a Managed Agent sandbox, and generate compliance-ready reports.
             </p>
           </div>
           <button
             className="primary-button"
             type="button"
-            onClick={lane === "diff" ? generateDiff : runTargetAssessment}
-            disabled={
-              phase === "generating" ||
-              phase === "importing" ||
-              phase === "registering" ||
-              phase === "running" ||
-              phase === "loading" ||
-              (lane === "targets" && missingCloudApproval)
-            }
+            onClick={runTargetAssessment}
+            disabled={phase === "importing" || phase === "registering" || phase === "running" || phase === "loading" || missingCloudApproval}
           >
-            {phase === "generating" || phase === "registering" || phase === "running" ? (
-              <RefreshCw className="spin" size={18} />
-            ) : lane === "diff" ? (
-              <Sparkles size={18} />
-            ) : (
-              <Play size={18} />
-            )}
-            {lane === "diff" ? (phase === "generating" ? "Generating" : "Generate diff") : phase === "running" ? "Running" : "Run assessment"}
+            {isScanning ? <RefreshCw className="spin" size={18} /> : <Play size={18} />}
+            {phase === "running" ? "Scanning…" : phase === "registering" ? "Initializing…" : "Run security scan"}
           </button>
         </header>
 
-        <div className="status-strip" aria-label="Workspace status">
-          {lane === "diff" ? (
-            <>
-              <StatCard label="Diff" value={diff?.status ?? "Empty"} detail={diff?.targetPath ?? targetPath} />
-              <StatCard label="Environment" value={diff?.environmentId ?? "Pending"} detail={useManagedAgent ? "remote when configured" : "simulator"} />
-              <StatCard label="Interaction" value={diff?.interactionId ?? "None"} detail={diff?.providerMode ?? "auto"} />
-              <StatCard label="Routing" value={routeStatus} detail={`${allowedTools.length} allowed tools`} />
-            </>
-          ) : (
-            <>
-              <StatCard
-                label="Target"
-                value={selectedTarget?.name ?? registeredAgent?.name ?? "None"}
-                detail={
-                  selectedTarget?.category ??
-                  githubImport?.repository.fullName ??
-                  (registeredAgent ? registeredAgent.promptPath ?? "imported project" : "template")
-                }
-              />
-              <StatCard label="Model" value={selectedModel?.displayName ?? "None"} detail={selectedModel?.provider ?? "provider"} />
-              <StatCard label="Run" value={run?.status ?? "Not started"} detail={run?.id ?? "local mock runtime"} />
-              <StatCard label="Findings" value={report ? String(report.findings.length) : "Pending"} detail={`${selectedScenarioIds.length} scenarios`} />
-            </>
-          )}
+        <ScanPipeline stages={PIPELINE_STAGES} statuses={stageStatuses} />
+
+        <div className="status-strip" aria-label="Scan status">
+          <StatCard label="Agent" value={agentLabel} detail={selectedTarget?.category ?? githubImport?.repository.fullName ?? "configured"} />
+          <StatCard label="Engine" value={selectedModel?.displayName ?? "None"} detail={selectedModel?.provider ?? "model"} />
+          <StatCard label="Scan" value={run?.status ?? "Ready"} detail={run?.id ? run.id.slice(0, 12) : `${selectedScenarioIds.length} scenarios`} />
+          <StatCard label="Findings" value={report ? String(report.findings.length) : isScanning ? "…" : "0"} detail={report ? `${report.scannerResults.length} scanner hits` : "awaiting scan"} />
         </div>
 
         {error ? (
@@ -621,373 +492,525 @@ export function SecurityDashboard() {
           </div>
         ) : null}
 
-        {lane === "diff" ? renderDiffLane() : renderTargetLane()}
-      </section>
-    </main>
-  );
-
-  function renderDiffLane() {
-    return (
-      <div className="diff-layout">
-        <section className="panel prompt-panel" id="prompt">
-          <PanelHeader icon={<Terminal size={18} />} title="Prompt input" value={useManagedAgent ? "managed" : "simulated"} />
-          <label className="field">
-            <span>Target prompt path</span>
-            <input value={targetPath} onChange={(event) => setTargetPath(event.target.value)} />
-          </label>
-          <label className="field">
-            <span>System prompt</span>
-            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
-          </label>
-          <div className="switch-row">
-            <span>Use Managed Agent when configured</span>
-            <button
-              className={useManagedAgent ? "toggle is-on" : "toggle"}
-              type="button"
-              aria-pressed={useManagedAgent}
-              onClick={() => setUseManagedAgent((current) => !current)}
-            >
-              <span />
-            </button>
-          </div>
-        </section>
-
-        <section className="panel output-panel">
-          <PanelHeader icon={<FileDiff size={18} />} title="Diff output" value={diff?.status ?? "empty"} />
-          {diff ? (
-            <div className="diff-result">
-              <div className="metadata-grid">
-                <Metric label="Provider" value={diff.providerMode.replace("_", " ")} />
-                <Metric label="Environment" value={diff.environmentId ?? "none"} />
-                <Metric label="Interaction" value={diff.interactionId ?? "none"} />
-                <Metric label="Route" value={routeStatus} />
-              </div>
-              <pre className="diff-output">{diff.unifiedDiff}</pre>
-            </div>
-          ) : (
-            <EmptyState icon={<Code2 size={24} />} title="Generate a diff to inspect prompt changes" />
-          )}
-        </section>
-
-        <section className="panel" id="routing">
-          <PanelHeader icon={<Route size={18} />} title="Tool routing" value={routeStatus} />
-          <div className="tool-options">
-            {toolOptions.map((tool) => (
-              <button
-                key={tool}
-                className={allowedTools.includes(tool) ? "tool-chip selected" : "tool-chip"}
-                type="button"
-                onClick={() => toggleTool(tool)}
-              >
-                {allowedTools.includes(tool) ? <Check size={15} /> : null}
-                {tool}
-              </button>
-            ))}
-          </div>
-          <button className="secondary-button" type="button" onClick={runSmokeCheck} disabled={phase === "smoke"}>
-            {phase === "smoke" ? <RefreshCw className="spin" size={17} /> : <Play size={17} />}
-            Verify routing
-          </button>
-          <RouteSummary result={diff ?? smoke} />
-        </section>
-
-        <section className="panel" id="github">
-          <PanelHeader icon={<GitPullRequestArrow size={18} />} title="GitHub PR" value={diff?.prUrl ? "created" : "approval"} />
-          <div className="approval-box">
-            <Bot size={20} />
-            <div>
-              <strong>Approved diff only</strong>
-              <p>DevBox sends the selected diff to the Next.js Octokit route only after this explicit action.</p>
-            </div>
-          </div>
-          <button className="secondary-button" type="button" onClick={createPr} disabled={!diff || phase === "creating-pr"}>
-            {phase === "creating-pr" ? <RefreshCw className="spin" size={17} /> : <GitPullRequestArrow size={17} />}
-            {phase === "creating-pr" ? "Creating PR" : "Create PR"}
-          </button>
-          {diff?.prUrl ? (
-            <a className="pr-link" href={diff.prUrl} target="_blank" rel="noreferrer">
-              {diff.prUrl}
-            </a>
-          ) : (
-            <p className="muted-note">Requires GitHub App credentials and the internal webhook secret.</p>
-          )}
-        </section>
-      </div>
-    );
-  }
-
-  function renderTargetLane() {
-    return (
-      <div className="grid-layout">
-        <section className="panel">
-          <PanelHeader icon={<Server size={18} />} title="Target agent" value={selectedTarget?.category ?? "none"} />
-          <div className="model-list">
-            {targetAgents.map((target) => (
-              <button
-                key={target.id}
-                className={selectedTargetId === target.id ? "model-card selected" : "model-card"}
-                type="button"
-                onClick={() => selectTarget(target)}
-              >
-                <div>
-                  <strong>{target.name}</strong>
-                  <small>{target.category}</small>
-                </div>
-                {selectedTargetId === target.id ? <Check size={17} /> : null}
-                <p>{target.description}</p>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel import-panel" id="import-agent">
-          <PanelHeader icon={<GitBranch size={18} />} title="GitHub import" value={githubImport ? "selected" : "live"} />
-          <div className="github-import-grid">
-            <label className="field">
-              <span>Owner</span>
-              <input value={githubSource.owner} onChange={(event) => setGithubSource((current) => ({ ...current, owner: event.target.value }))} />
-            </label>
-            <label className="field">
-              <span>Repository</span>
-              <input value={githubSource.repo} onChange={(event) => setGithubSource((current) => ({ ...current, repo: event.target.value }))} />
-            </label>
-            <label className="field">
-              <span>Ref</span>
-              <input value={githubSource.ref ?? ""} onChange={(event) => setGithubSource((current) => ({ ...current, ref: event.target.value }))} />
-            </label>
-            <label className="field">
-              <span>Prompt path</span>
-              <input
-                value={githubSource.promptPath}
-                onChange={(event) => setGithubSource((current) => ({ ...current, promptPath: event.target.value }))}
-              />
-            </label>
-            <label className="field">
-              <span>Manifest path</span>
-              <input
-                value={githubSource.manifestPath ?? ""}
-                onChange={(event) => setGithubSource((current) => ({ ...current, manifestPath: event.target.value || null }))}
-              />
-            </label>
-            <label className="field">
-              <span>Installation ID</span>
-              <input
-                value={githubSource.installationId ?? ""}
-                onChange={(event) =>
-                  setGithubSource((current) => ({
-                    ...current,
-                    installationId: event.target.value ? Number(event.target.value) : null
-                  }))
-                }
-              />
-            </label>
-          </div>
-          <button className="secondary-button" type="button" onClick={importGitHubAgent} disabled={phase === "importing"}>
-            {phase === "importing" ? <RefreshCw className="spin" size={17} /> : <GitBranch size={17} />}
-            {phase === "importing" ? "Importing" : "Import from GitHub"}
-          </button>
-          {githubImport ? (
-            <div className="import-status">
-              <strong>{githubImport.repository.fullName}</strong>
-              <span>
-                {githubImport.source.promptPath} / {githubImport.commitSha ?? "latest ref"}
-              </span>
-            </div>
-          ) : null}
-        </section>
-
-        <section className="panel import-panel">
-          <PanelHeader icon={<Upload size={18} />} title="Local manifest import" value={registeredAgent && !selectedTarget ? "selected" : "ready"} />
-          <label className="field">
-            <span>Manifest JSON</span>
-            <textarea className="manifest-input" value={importManifest} onChange={(event) => setImportManifest(event.target.value)} />
-          </label>
-          <div className="file-grid">
-            <label className="file-field">
-              <span>Manifest file</span>
-              <input type="file" accept="application/json,.json" onChange={(event) => void loadManifestFile(event.target.files?.[0] ?? null)} />
-            </label>
-            <label className="file-field">
-              <span>Prompt file</span>
-              <input
-                type="file"
-                accept=".md,.txt,text/markdown,text/plain"
-                onChange={(event) => setPromptFile(event.target.files?.[0] ?? null)}
-              />
-            </label>
-          </div>
-          <button className="secondary-button" type="button" onClick={importAgentProject} disabled={phase === "importing"}>
-            {phase === "importing" ? <RefreshCw className="spin" size={17} /> : <Upload size={17} />}
-            {phase === "importing" ? "Importing" : "Import agent"}
-          </button>
-          {registeredAgent && !selectedTarget ? (
-            <div className="import-status">
-              <strong>{registeredAgent.name}</strong>
-              <span>
-                {registeredAgent.promptPath ?? "inline prompt"} / {selectedScenarioIds.length} scenarios
-              </span>
-            </div>
-          ) : null}
-          {promptFile ? <p className="muted-note">Prompt file: {promptFile.name}</p> : null}
-          {importWarnings.length > 0 ? (
-            <ul className="warning-list">
-              {importWarnings.map((warning) => (
-                <li key={warning}>{warning}</li>
+        <div className="scan-flow">
+          <section className="scan-section panel" id="configure">
+            <SectionHeader
+              step={1}
+              icon={<Server size={18} />}
+              title="Configure agent"
+              subtitle="Select a template or import your agent project file"
+              badge={agentLabel}
+            />
+            <div className="import-tabs">
+              {(["template", "github", "local"] as ImportTab[]).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  className={importTab === tab ? "import-tab active" : "import-tab"}
+                  onClick={() => setImportTab(tab)}
+                >
+                  {tab === "template" ? "Templates" : tab === "github" ? "GitHub" : "Local file"}
+                </button>
               ))}
-            </ul>
-          ) : null}
-        </section>
-
-        <section className="panel">
-          <PanelHeader icon={<Database size={18} />} title="Model" value={selectedModel?.provider ?? "provider"} />
-          <div className="model-list">
-            {models.map((model) => (
-              <button
-                key={model.modelId}
-                className={selectedModelId === model.modelId ? "model-card selected" : "model-card"}
-                type="button"
-                disabled={!model.enabled}
-                onClick={() => selectModel(model)}
-              >
-                <div>
-                  <strong>
-                    <span className={`provider-dot ${model.provider}`} />
-                    {model.displayName}
-                  </strong>
-                  <small>{model.riskProfile} runtime</small>
-                </div>
-                <span className="model-state">{model.enabled ? model.costTier : "off"}</span>
-                <p>{model.enabled ? model.privacyNote : model.unavailableReason ?? "Provider unavailable."}</p>
-              </button>
-            ))}
-          </div>
-          {requiresCloudApproval ? (
-            <div className="switch-row cloud-approval-row">
-              <div>
-                <span>Approve cloud analysis</span>
-                <small>{selectedModel?.displayName ?? "Selected cloud model"} can process selected run data.</small>
-              </div>
-              <button
-                className={allowCloudAnalysis ? "toggle is-on" : "toggle"}
-                type="button"
-                aria-pressed={allowCloudAnalysis}
-                onClick={() => setAllowCloudAnalysis((current) => !current)}
-              >
-                <span />
-              </button>
             </div>
-          ) : null}
-        </section>
 
-        <section className="panel">
-          <PanelHeader icon={<ListChecks size={18} />} title="Scenarios" value={`${selectedScenarioIds.length} selected`} />
-          <div className="scenario-list">
-            {scenarios.map((scenario) => (
-              <button
-                key={scenario.id}
-                className={selectedScenarioIds.includes(scenario.id) ? "scenario-row selected" : "scenario-row"}
-                type="button"
-                onClick={() => toggleScenario(scenario.id)}
-              >
-                {selectedScenarioIds.includes(scenario.id) ? <Check size={16} /> : <FileSearch size={16} />}
-                <div>
-                  <strong>{scenario.name}</strong>
-                  <small>{scenario.attackGoal}</small>
+            {importTab === "template" ? (
+              <div className="model-list compact">
+                {targetAgents.map((target) => (
+                  <button
+                    key={target.id}
+                    className={selectedTargetId === target.id ? "model-card selected" : "model-card"}
+                    type="button"
+                    onClick={() => selectTarget(target)}
+                  >
+                    <div>
+                      <strong>{target.name}</strong>
+                      <small>{target.category}</small>
+                    </div>
+                    {selectedTargetId === target.id ? <Check size={17} /> : null}
+                    <p>{target.description}</p>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            {importTab === "github" ? (
+              <div className="import-body">
+                <div className="github-import-grid">
+                  <label className="field">
+                    <span>Owner</span>
+                    <input value={githubSource.owner} onChange={(e) => setGithubSource((c) => ({ ...c, owner: e.target.value }))} />
+                  </label>
+                  <label className="field">
+                    <span>Repository</span>
+                    <input value={githubSource.repo} onChange={(e) => setGithubSource((c) => ({ ...c, repo: e.target.value }))} />
+                  </label>
+                  <label className="field">
+                    <span>Ref</span>
+                    <input value={githubSource.ref ?? ""} onChange={(e) => setGithubSource((c) => ({ ...c, ref: e.target.value }))} />
+                  </label>
+                  <label className="field">
+                    <span>Prompt path</span>
+                    <input value={githubSource.promptPath} onChange={(e) => setGithubSource((c) => ({ ...c, promptPath: e.target.value }))} />
+                  </label>
+                  <label className="field">
+                    <span>Manifest path</span>
+                    <input
+                      value={githubSource.manifestPath ?? ""}
+                      onChange={(e) => setGithubSource((c) => ({ ...c, manifestPath: e.target.value || null }))}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Installation ID</span>
+                    <input
+                      value={githubSource.installationId ?? ""}
+                      onChange={(e) =>
+                        setGithubSource((c) => ({ ...c, installationId: e.target.value ? Number(e.target.value) : null }))
+                      }
+                    />
+                  </label>
                 </div>
-                <span className={`severity ${scenario.defaultSeverity}`}>{scenario.defaultSeverity}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel trace-panel">
-          <PanelHeader icon={<Terminal size={18} />} title="Live trace" value={run?.status ?? "idle"} />
-          {events.length > 0 ? (
-            <div className="trace-list">
-              {events.map((event) => (
-                <div className="trace-event" key={event.sequence}>
-                  <span className={`actor ${event.actor}`}>{event.actor.replace("_", " ")}</span>
-                  <div>
-                    <strong>{event.message}</strong>
+                <button className="secondary-button inline" type="button" onClick={importGitHubAgent} disabled={phase === "importing"}>
+                  {phase === "importing" ? <RefreshCw className="spin" size={17} /> : <GitBranch size={17} />}
+                  Import from GitHub
+                </button>
+                {githubImport ? (
+                  <div className="import-status">
+                    <strong>{githubImport.repository.fullName}</strong>
                     <span>
-                      #{event.sequence}
-                      {event.toolCall ? ` / ${event.toolCall}` : ""}
-                      {event.policyDecision ? ` / ${event.policyDecision}` : ""}
-                      {event.riskSignal ? ` / ${event.riskSignal}` : ""}
+                      {githubImport.source.promptPath} / {githubImport.commitSha ?? "latest ref"}
                     </span>
                   </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {importTab === "local" ? (
+              <div className="import-body">
+                <label className="field">
+                  <span>Manifest JSON</span>
+                  <textarea className="manifest-input compact" value={importManifest} onChange={(e) => setImportManifest(e.target.value)} />
+                </label>
+                <div className="file-grid">
+                  <label className="file-field">
+                    <span>Manifest file</span>
+                    <input type="file" accept="application/json,.json" onChange={(e) => void loadManifestFile(e.target.files?.[0] ?? null)} />
+                  </label>
+                  <label className="file-field">
+                    <span>Prompt file</span>
+                    <input type="file" accept=".md,.txt,text/markdown,text/plain" onChange={(e) => setPromptFile(e.target.files?.[0] ?? null)} />
+                  </label>
                 </div>
+                <button className="secondary-button inline" type="button" onClick={importAgentProject} disabled={phase === "importing"}>
+                  {phase === "importing" ? <RefreshCw className="spin" size={17} /> : <Upload size={17} />}
+                  Import agent
+                </button>
+                {registeredAgent && !selectedTarget ? (
+                  <div className="import-status">
+                    <strong>{registeredAgent.name}</strong>
+                    <span>{registeredAgent.promptPath ?? "inline prompt"}</span>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {importWarnings.length > 0 ? (
+              <ul className="warning-list">
+                {importWarnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+
+          <section className="scan-section panel" id="engine">
+            <SectionHeader
+              step={2}
+              icon={<Database size={18} />}
+              title="Scan engine"
+              subtitle="High-speed router and analysis models for threat routing"
+              badge={selectedModel?.provider ?? "engine"}
+            />
+            <div className="model-list compact">
+              {models.map((model) => (
+                <button
+                  key={model.modelId}
+                  className={selectedModelId === model.modelId ? "model-card selected" : "model-card"}
+                  type="button"
+                  disabled={!model.enabled}
+                  onClick={() => selectModel(model)}
+                >
+                  <div>
+                    <strong>
+                      <span className={`provider-dot ${model.provider}`} />
+                      {model.displayName}
+                    </strong>
+                    <small>{model.riskProfile} · {model.costTier}</small>
+                  </div>
+                  <span className="model-state">{model.enabled ? "ready" : "off"}</span>
+                  <p>{model.enabled ? model.privacyNote : model.unavailableReason ?? "Unavailable"}</p>
+                </button>
               ))}
             </div>
-          ) : (
-            <EmptyState icon={<Terminal size={24} />} title="Run an assessment to stream target-agent events" />
-          )}
-        </section>
-
-        <section className="panel report-panel" id="target-report">
-          <PanelHeader icon={<ShieldCheck size={18} />} title="Findings report" value={report ? `${report.score}/100` : "pending"} />
-          {report ? (
-            <>
-              <div className="score-strip">
-                <strong>{report.score}</strong>
+            {requiresCloudApproval ? (
+              <div className="switch-row cloud-approval-row">
                 <div>
-                  <span>Security score</span>
-                  <p>{report.traceSummary}</p>
-                  <div className="score-progress">
-                    <div className="score-progress-indicator" style={{ transform: `translateX(-${100 - report.score}%)` }} />
-                  </div>
+                  <span>Approve cloud analysis</span>
+                  <small>{selectedModel?.displayName} can process selected run data in the cloud.</small>
                 </div>
+                <button
+                  className={allowCloudAnalysis ? "toggle is-on" : "toggle"}
+                  type="button"
+                  aria-pressed={allowCloudAnalysis}
+                  onClick={() => setAllowCloudAnalysis((c) => !c)}
+                >
+                  <span />
+                </button>
               </div>
-              <div className="finding-list">
-                {report.findings.map((finding) => (
-                  <div className="finding-row" key={finding.id}>
-                    <span className={`severity ${finding.severity}`}>{finding.severity}</span>
+            ) : null}
+          </section>
+
+          <section className="scan-section panel" id="scenarios">
+            <SectionHeader
+              step={3}
+              icon={<ListChecks size={18} />}
+              title="Attack scenarios"
+              subtitle="OWASP LLM Top 10 mapped adversarial tests"
+              badge={`${selectedScenarioIds.length} active`}
+            />
+            <div className="scenario-list compact">
+              {scenarios.map((scenario) => (
+                <button
+                  key={scenario.id}
+                  className={selectedScenarioIds.includes(scenario.id) ? "scenario-row selected" : "scenario-row"}
+                  type="button"
+                  onClick={() => toggleScenario(scenario.id)}
+                >
+                  {selectedScenarioIds.includes(scenario.id) ? <Check size={16} /> : <FileSearch size={16} />}
+                  <div>
+                    <strong>{scenario.name}</strong>
+                    <small>{scenario.attackGoal}</small>
+                  </div>
+                  <span className={`severity ${scenario.defaultSeverity}`}>{scenario.defaultSeverity}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="scan-section panel pipeline-panel" id="pipeline">
+            <SectionHeader
+              step={4}
+              icon={<Terminal size={18} />}
+              title="Live pipeline"
+              subtitle="Real-time trace as workloads route through each security stage"
+              badge={run?.status ?? "idle"}
+            />
+            <div className="stage-cards">
+              {PIPELINE_STAGES.map((stage) => (
+                <StageCard key={stage.id} stage={stage} status={stageStatuses[stage.id]} eventCount={countStageEvents(stage.id, events)} />
+              ))}
+            </div>
+            {events.length > 0 ? (
+              <div className="trace-list">
+                {events.map((event) => (
+                  <div className="trace-event" key={event.sequence}>
+                    <span className={`actor ${event.actor}`}>{event.actor.replace("_", " ")}</span>
                     <div>
-                      <strong>{finding.violatedPolicy}</strong>
-                      <p>{finding.evidence}</p>
+                      <strong>{event.message}</strong>
+                      <span>
+                        #{event.sequence}
+                        {event.toolCall ? ` · ${event.toolCall}` : ""}
+                        {event.policyDecision ? ` · ${event.policyDecision}` : ""}
+                        {event.riskSignal ? ` · ${event.riskSignal}` : ""}
+                      </span>
                     </div>
                   </div>
                 ))}
               </div>
-              <div className="diff-box">
-                <strong>Regression tests</strong>
-                <p>{report.regressionTests.join(" ")}</p>
-              </div>
-              <button className="secondary-button" type="button" onClick={approveTargetFix} disabled={phase === "approving"}>
-                {phase === "approving" ? <RefreshCw className="spin" size={17} /> : <Wrench size={17} />}
-                {phase === "approving" ? "Approving" : "Approve prompt and policy fix"}
-              </button>
-              <button className="secondary-button" type="button" onClick={approveTargetPr} disabled={phase === "creating-pr"}>
-                {phase === "creating-pr" ? <RefreshCw className="spin" size={17} /> : <GitPullRequestArrow size={17} />}
-                {phase === "creating-pr" ? "Creating PR" : "Approve prompt PR"}
-              </button>
-              {runPr?.prUrl ? (
-                <a className="pr-link" href={runPr.prUrl} target="_blank" rel="noreferrer">
-                  {runPr.prUrl}
-                </a>
-              ) : null}
-              {approvalMessage ? <p className="success-line">{approvalMessage}</p> : null}
-            </>
-          ) : (
-            <EmptyState icon={<ShieldCheck size={24} />} title="Completed runs produce a scorecard and fixes" />
-          )}
-        </section>
+            ) : (
+              <EmptyState icon={<Sparkles size={24} />} title="Run a scan to watch the dual-engine pipeline in action" />
+            )}
+          </section>
 
-        <section className="panel sandbox-panel">
-          <PanelHeader icon={<LockKeyhole size={18} />} title="Sandbox policy" value={registeredAgent?.runtime?.agentKey ?? selectedTarget?.runtime.agentKey ?? "template"} />
-          <PolicySummary agent={registeredAgent ?? selectedTarget?.agentSpec ?? null} />
-        </section>
-      </div>
-    );
-  }
+          <section className="scan-section panel results-panel" id="results">
+            <SectionHeader
+              step={5}
+              icon={<ShieldCheck size={18} />}
+              title="Security report"
+              subtitle="Findings, scanner output, risk routes, and compliance mappings"
+              badge={report ? `${report.score}/100` : "pending"}
+            />
+            {report ? (
+              <>
+                <div className="score-strip">
+                  <strong className={scoreClass(report.score)}>{report.score}</strong>
+                  <div>
+                    <span>Security score</span>
+                    <p>{report.traceSummary}</p>
+                    <div className="score-progress">
+                      <div className="score-progress-indicator" style={{ transform: `translateX(-${100 - report.score}%)` }} />
+                    </div>
+                  </div>
+                </div>
+
+                {report.riskRoutes.length > 0 ? (
+                  <div className="result-block">
+                    <h3>Risk routing</h3>
+                    <div className="route-cards">
+                      {report.riskRoutes.map((route, i) => (
+                        <div className="route-card" key={`${route.lane}-${i}`}>
+                          <span className={`lane-badge ${route.lane}`}>{route.lane}</span>
+                          <span className={`severity ${route.severity}`}>{route.severity}</span>
+                          <p>{route.rationale}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {report.scannerResults.length > 0 ? (
+                  <div className="result-block">
+                    <h3>Scanner results</h3>
+                    <ScannerResultsList results={report.scannerResults} />
+                  </div>
+                ) : null}
+
+                <div className="result-block">
+                  <h3>Findings</h3>
+                  {report.findings.length > 0 ? (
+                    <div className="finding-list compact">
+                      {report.findings.map((finding) => (
+                        <div className="finding-row" key={finding.id}>
+                          <span className={`severity ${finding.severity}`}>{finding.severity}</span>
+                          <div>
+                            <strong>{finding.violatedPolicy}</strong>
+                            <p>{finding.evidence}</p>
+                            <small>{finding.recommendation}</small>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="muted-note">No critical findings detected in this scan.</p>
+                  )}
+                </div>
+
+                {report.complianceMappings.length > 0 ? (
+                  <div className="result-block">
+                    <h3>Compliance layer</h3>
+                    <ComplianceTable mappings={report.complianceMappings} />
+                  </div>
+                ) : null}
+
+                <div className="remediation-box">
+                  <Wrench size={18} />
+                  <div>
+                    <strong>Defender remediation available</strong>
+                    <p>Review the proposed prompt and policy hardening, then apply fixes to your agent configuration.</p>
+                  </div>
+                  <button className="secondary-button inline" type="button" onClick={approveTargetFix} disabled={phase === "approving"}>
+                    {phase === "approving" ? <RefreshCw className="spin" size={17} /> : <Wrench size={17} />}
+                    Apply remediation
+                  </button>
+                </div>
+                {approvalMessage ? <p className="success-line">{approvalMessage}</p> : null}
+              </>
+            ) : (
+              <EmptyState icon={<ShieldCheck size={24} />} title="Complete a scan to generate your security scorecard and compliance report" />
+            )}
+          </section>
+
+          {activeAgent ? (
+            <section className="scan-section panel policy-panel">
+              <SectionHeader
+                step={6}
+                icon={<LockKeyhole size={18} />}
+                title="Sandbox policy"
+                subtitle="Tool bindings, domain allowlist, and honeytoken traps"
+                badge={activeAgent.runtime?.agentKey ?? "policy"}
+              />
+              <PolicySummary agent={activeAgent} />
+            </section>
+          ) : null}
+        </div>
+      </section>
+    </main>
+  );
 }
 
-function LaneItem({ active, icon, label, onClick }: { active?: boolean; icon: ReactNode; label: string; onClick: () => void }) {
+function deriveStageStatuses(phase: Phase, events: RunEvent[], report: Report | null): Record<PipelineStageId, StageStatus> {
+  if (phase === "error") {
+    return { router: "error", engines: "pending", sandbox: "pending", compliance: "pending" };
+  }
+  if (report) {
+    return { router: "done", engines: "done", sandbox: "done", compliance: "done" };
+  }
+  if (phase === "idle" || phase === "loading" || phase === "importing" || phase === "approving") {
+    return { router: "pending", engines: "pending", sandbox: "pending", compliance: "pending" };
+  }
+  if (phase === "registering") {
+    return { router: "active", engines: "pending", sandbox: "pending", compliance: "pending" };
+  }
+  const hasAttacker = events.some((e) => e.actor === "attacker" || e.actor === "target_agent");
+  const hasDefender = events.some((e) => e.actor === "defender");
+  const hasScanner = events.some((e) => e.message.toLowerCase().includes("scanner") || e.message.toLowerCase().includes("garak"));
+  if (hasDefender) {
+    return { router: "done", engines: "done", sandbox: "done", compliance: "active" };
+  }
+  if (hasAttacker) {
+    return { router: "done", engines: hasScanner ? "done" : "active", sandbox: "active", compliance: "pending" };
+  }
+  if (events.length > 0) {
+    return { router: "done", engines: "active", sandbox: "pending", compliance: "pending" };
+  }
+  return { router: "active", engines: "pending", sandbox: "pending", compliance: "pending" };
+}
+
+function countStageEvents(stageId: PipelineStageId, events: RunEvent[]): number {
+  const filters: Record<PipelineStageId, (e: RunEvent) => boolean> = {
+    router: (e) => e.actor === "system" && (e.message.toLowerCase().includes("route") || e.message.toLowerCase().includes("risk")),
+    engines: (e) => e.message.toLowerCase().includes("scanner") || e.message.toLowerCase().includes("local") || e.message.toLowerCase().includes("garak"),
+    sandbox: (e) => e.actor === "attacker" || e.actor === "defender" || e.actor === "target_agent" || e.actor === "sandbox",
+    compliance: (e) => e.message.toLowerCase().includes("compliance") || e.message.toLowerCase().includes("report") || e.actor === "defender"
+  };
+  return events.filter(filters[stageId]).length;
+}
+
+function scoreClass(score: number): string {
+  if (score >= 80) return "score-good";
+  if (score >= 60) return "score-warn";
+  return "score-bad";
+}
+
+function ScanPipeline({
+  stages,
+  statuses
+}: {
+  stages: typeof PIPELINE_STAGES;
+  statuses: Record<PipelineStageId, StageStatus>;
+}) {
   return (
-    <button className={active ? "nav-item active" : "nav-item"} type="button" onClick={onClick}>
+    <div className="scan-pipeline" aria-label="Security scan pipeline">
+      {stages.map((stage, index) => (
+        <div key={stage.id} className="pipeline-node-wrap">
+          <div className={`pipeline-node ${statuses[stage.id]}`}>
+            <div className="pipeline-node-icon">{stage.icon}</div>
+            <div className="pipeline-node-text">
+              <strong>{stage.label}</strong>
+              <span>{stage.highlight}</span>
+            </div>
+            <PipelineStatusBadge status={statuses[stage.id]} />
+          </div>
+          {index < stages.length - 1 ? <ChevronRight className="pipeline-arrow" size={18} /> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PipelineStatusBadge({ status }: { status: StageStatus }) {
+  const labels: Record<StageStatus, string> = {
+    pending: "Waiting",
+    active: "Running",
+    done: "Complete",
+    error: "Failed"
+  };
+  return <span className={`pipeline-badge ${status}`}>{labels[status]}</span>;
+}
+
+function StageCard({
+  stage,
+  status,
+  eventCount
+}: {
+  stage: (typeof PIPELINE_STAGES)[number];
+  status: StageStatus;
+  eventCount: number;
+}) {
+  return (
+    <div className={`stage-card ${status}`}>
+      <div className="stage-card-head">
+        {stage.icon}
+        <strong>{stage.label}</strong>
+        <PipelineStatusBadge status={status} />
+      </div>
+      <p>{stage.highlight}</p>
+      {eventCount > 0 ? <span className="stage-event-count">{eventCount} events</span> : null}
+    </div>
+  );
+}
+
+function ScannerResultsList({ results }: { results: ScannerResult[] }) {
+  return (
+    <div className="scanner-grid">
+      {results.map((result) => (
+        <div className={`scanner-card ${result.status}`} key={result.id}>
+          <div className="scanner-card-head">
+            <strong>{result.scanner}</strong>
+            <span className={`scanner-status ${result.status}`}>{result.status}</span>
+          </div>
+          <p>{result.summary}</p>
+          {result.severity ? <span className={`severity ${result.severity}`}>{result.severity}</span> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ComplianceTable({ mappings }: { mappings: ComplianceMapping[] }) {
+  const frameworkLabels: Record<string, string> = {
+    nist_ai_rmf: "NIST AI RMF",
+    iso_iec_42001: "ISO/IEC 42001",
+    owasp_llm_top_10: "OWASP LLM Top 10"
+  };
+  return (
+    <div className="compliance-table">
+      {mappings.map((mapping, i) => (
+        <div className={`compliance-row ${mapping.status}`} key={`${mapping.control}-${i}`}>
+          <span className="compliance-framework">{frameworkLabels[mapping.framework] ?? mapping.framework}</span>
+          <strong>{mapping.control}</strong>
+          <span className={`compliance-status ${mapping.status}`}>{mapping.status.replace("_", " ")}</span>
+          <p>{mapping.evidence}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function NavAnchor({ href, icon, label }: { href: string; icon: ReactNode; label: string }) {
+  return (
+    <a className="nav-item" href={href}>
       {icon}
       <span>{label}</span>
-    </button>
+    </a>
+  );
+}
+
+function SectionHeader({
+  step,
+  icon,
+  title,
+  subtitle,
+  badge
+}: {
+  step: number;
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+  badge: string;
+}) {
+  return (
+    <div className="section-header">
+      <div className="section-header-main">
+        <span className="step-badge">{step}</span>
+        {icon}
+        <div>
+          <h2>{title}</h2>
+          <p>{subtitle}</p>
+        </div>
+      </div>
+      <span className="section-badge">{badge}</span>
+    </div>
   );
 }
 
@@ -1001,59 +1024,10 @@ function StatCard({ detail, label, value }: { detail: string; label: string; val
   );
 }
 
-function PanelHeader({ icon, title, value }: { icon: ReactNode; title: string; value: string }) {
-  return (
-    <div className="panel-header">
-      <div>
-        {icon}
-        <h2>{title}</h2>
-      </div>
-      <span>{value}</span>
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function RouteSummary({ result }: { result: DiffResult | null }) {
-  if (!result) {
-    return <p className="muted-note">No route data yet.</p>;
-  }
-
-  return (
-    <dl className="route-summary">
-      <div>
-        <dt>Requested</dt>
-        <dd>{result.toolRoute.requestedTools.join(", ") || "none"}</dd>
-      </div>
-      <div>
-        <dt>Observed</dt>
-        <dd>{result.toolRoute.observedTools.join(", ") || "none"}</dd>
-      </div>
-      <div>
-        <dt>Violations</dt>
-        <dd>{result.toolRoute.violations.join(", ") || "none"}</dd>
-      </div>
-      <div>
-        <dt>Raw steps</dt>
-        <dd>{result.toolRoute.rawStepCount}</dd>
-      </div>
-    </dl>
-  );
-}
-
 function PolicySummary({ agent }: { agent: AgentSpec | null }) {
   if (!agent) {
-    return <EmptyState icon={<LockKeyhole size={24} />} title="Select a target agent to inspect sandbox policy" />;
+    return <EmptyState icon={<LockKeyhole size={24} />} title="Configure an agent to inspect sandbox policy" />;
   }
-
   return (
     <dl className="policy-list">
       <div>
@@ -1078,7 +1052,7 @@ function PolicySummary({ agent }: { agent: AgentSpec | null }) {
 
 function EmptyState({ icon, title }: { icon: ReactNode; title: string }) {
   return (
-    <div className="empty-state">
+    <div className="empty-state compact">
       {icon}
       <span>{title}</span>
     </div>

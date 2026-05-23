@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 
   const allowed = allowedAdminEmails();
   if (allowed.length > 0 && !allowed.includes(email.toLowerCase())) {
-    return NextResponse.json({ error: "GitHub account is not allowlisted for DevBox." }, { status: 403 });
+    return NextResponse.json({ error: "GitHub account is not allowlisted for AgentSecure." }, { status: 403 });
   }
 
   const response = NextResponse.redirect(new URL("/", request.url));

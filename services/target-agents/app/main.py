@@ -51,7 +51,7 @@ class TargetAgentSummary(ApiModel):
 
 
 app = FastAPI(
-    title="DevBox Production-Like Target Agents",
+    title="AgentSecure Production-Like Target Agents",
     description="Synthetic target agents with production-style HTTP boundaries and fake tools.",
     version="0.1.0",
 )

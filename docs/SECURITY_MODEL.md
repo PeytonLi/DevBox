@@ -1,6 +1,6 @@
 # Security Model
 
-DevBox tests agents in an authorized sandbox. Local development can still use deterministic simulations, but the production pilot is designed for opt-in GitHub repository imports, persisted audit trails, and Gemini review after local redaction.
+AgentSecure tests agents in an authorized sandbox. Local development can still use deterministic simulations, but the production pilot is designed for opt-in GitHub repository imports, persisted audit trails, and Gemini review after local redaction.
 
 ## Boundaries
 

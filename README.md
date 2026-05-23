@@ -100,10 +100,12 @@ The defending agent does not silently mutate the target agent. Every change requ
 
 The MVP demonstrates the end-to-end concept with safe defaults:
 
-- Next.js dashboard for prompt input, scenario runs, findings, and diff review.
-- FastAPI orchestration service for runs, reports, event streams, GitHub imports, and signed PR requests.
-- Express prototype for Gemini-style routing and compliance output.
-- Local target agents for testing browser, RAG, and GitHub PR-style workflows.
+- `apps/web`: Next.js App Router dashboard for prompt input, scenario runs, findings, and diff review.
+- `services/api`: FastAPI orchestration service for runs, reports, event streams, GitHub imports, and signed PR requests.
+- `services/target-agents`: local FastAPI mock production agents for sandbox testing of browser, RAG, and GitHub PR-style workflows.
+- `infra/policies`: shared scenario metadata for frontend/package consumers (`@devbox/policies`).
+- `infra`: Docker Compose and sandbox container.
+- `render.yaml`: Render blueprint for FastAPI web service, Celery worker, Postgres, and Render Key Value.
 - Shared attacker, defender, and organization security policy prompts.
 - Simulator mode when live Gemini Managed Agent access is not configured.
 

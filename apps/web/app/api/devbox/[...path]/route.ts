@@ -31,7 +31,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 async function forward(request: NextRequest, context: RouteContext) {
   const session = readAdminSession(request);
   if (!session) {
-    return NextResponse.json({ detail: "DevBox admin login required.", loginUrl: "/api/auth/github/start" }, { status: 401 });
+    return NextResponse.json({ detail: "AgentSecure admin login required.", loginUrl: "/api/auth/github/start" }, { status: 401 });
   }
 
   const params = await context.params;

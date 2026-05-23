@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - infra/policies
 
 engineStrict: true
 sharedWorkspaceLockfile: true

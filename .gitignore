@@ -17,3 +17,7 @@ devbox.local.db
 *.local.db
 
 services/api/openapi.json
+
+# pnpm store
+.pnpm-store/
+

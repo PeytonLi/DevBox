@@ -47,7 +47,7 @@ importers:
     dependencies:
       '@devbox/policies':
         specifier: workspace:*
-        version: link:../../packages/policies
+        version: link:../../infra/policies
       '@devbox/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -95,17 +95,17 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
-  packages/cactus-compute:
+  infra/policies:
     devDependencies:
+      '@devbox/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       typescript:
         specifier: 5.9.3
         version: 5.9.3
 
-  packages/policies:
+  packages/cactus-compute:
     devDependencies:
-      '@devbox/shared':
-        specifier: workspace:*
-        version: link:../shared
       typescript:
         specifier: 5.9.3
         version: 5.9.3

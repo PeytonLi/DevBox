@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="DevBox Agent Security Lab API",
+    title="AgentSecure API",
     version=VERSION,
     description="Authorized sandboxed assessment API for managed or opt-in AI agents.",
     lifespan=lifespan,

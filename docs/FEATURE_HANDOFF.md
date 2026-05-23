@@ -55,8 +55,8 @@ DevBox/
 |-- apps/web/                  # Next.js App Router dashboard
 |-- services/api/              # FastAPI orchestration API
 |-- packages/shared/           # TypeScript contracts and generated OpenAPI types
-|-- packages/policies/         # Shared scenario metadata for frontend consumers
 |-- infra/                     # Docker Compose and sandbox container scaffold
+|   `-- policies/             # Shared scenario metadata (@devbox/policies workspace package)
 `-- docs/                      # Security model and project documentation
 ```
 

@@ -35,7 +35,7 @@ await localEngine.initializeModel({
 // Helper to load prompt files
 function loadPromptAsset(filename) {
   try {
-    const fullPath = path.resolve(__dirname, `../../packages/policies/prompts/${filename}`);
+    const fullPath = path.resolve(__dirname, `../../infra/policies/prompts/${filename}`);
     if (fs.existsSync(fullPath)) {
       return fs.readFileSync(fullPath, "utf-8");
     }
