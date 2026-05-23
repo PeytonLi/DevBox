@@ -247,6 +247,10 @@ class Report(ApiModel):
     risk_routes: list[RiskRoute] = Field(default_factory=list)
     scanner_results: list[ScannerResult] = Field(default_factory=list)
     compliance_mappings: list[ComplianceMapping] = Field(default_factory=list)
+    cactus_route: str | None = None
+    cactus_reason: str | None = None
+    cactus_local_audit: str | None = None
+    cactus_compliance: str | None = None
 
 
 class ApproveFixRequest(ApiModel):

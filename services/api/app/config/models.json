@@ -63,5 +63,16 @@
     "risk_profile": "local",
     "supports_tools": false,
     "required_env": "LOCAL_MODEL_BASE_URL"
+  },
+  {
+    "provider": "local",
+    "model_id": "cactus-hybrid-router",
+    "display_name": "Cactus Edge-Cloud Hybrid Router",
+    "capabilities": ["hybrid_routing", "local_privacy_sanitization", "cloud_reasoning"],
+    "privacy_note": "Dynamic dual-engine routing. Confines credentials to local Gemma 4 and routes logic structures to Gemini Cloud.",
+    "cost_tier": "local",
+    "risk_profile": "local",
+    "supports_tools": true,
+    "enabled": true
   }
 ]
