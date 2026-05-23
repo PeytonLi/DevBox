@@ -55,6 +55,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/target-agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Target Agents */
+        get: operations["list_target_agents_v1_target_agents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/target-agents/{target_agent_id}/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register Target Agent */
+        post: operations["register_target_agent_v1_target_agents__target_agent_id__register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents": {
         parameters: {
             query?: never;
@@ -211,6 +245,7 @@ export interface components {
              * @default true
              */
             managed: boolean;
+            runtime?: components["schemas"]["TargetAgentRuntime"] | null;
         };
         /** ApproveFixRequest */
         ApproveFixRequest: {
@@ -492,6 +527,34 @@ export interface components {
          * @enum {string}
          */
         Severity: "low" | "medium" | "high" | "critical";
+        /** TargetAgentRuntime */
+        TargetAgentRuntime: {
+            /**
+             * Kind
+             * @default mock_http
+             * @constant
+             */
+            kind: "mock_http";
+            /** Endpoint */
+            endpoint: string;
+            /** Agentkey */
+            agentKey: string;
+        };
+        /** TargetAgentTemplate */
+        TargetAgentTemplate: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Category */
+            category: string;
+            /** Recommendedscenarioids */
+            recommendedScenarioIds: string[];
+            agentSpec: components["schemas"]["AgentSpec"];
+            runtime: components["schemas"]["TargetAgentRuntime"];
+        };
         /** ToolRoute */
         ToolRoute: {
             /** Requestedtools */
@@ -584,6 +647,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Scenario"][];
+                };
+            };
+        };
+    };
+    list_target_agents_v1_target_agents_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TargetAgentTemplate"][];
+                };
+            };
+        };
+    };
+    register_target_agent_v1_target_agents__target_agent_id__register_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                target_agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSpec"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -7,13 +7,15 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "concurrently -n web,api -c cyan,magenta \"pnpm dev:web\" \"pnpm dev:api\"",
+    "dev": "concurrently -n web,api,targets -c cyan,magenta,green \"pnpm dev:web\" \"pnpm dev:api\" \"pnpm dev:target-agents\"",
     "dev:web": "dotenv -e .env -- pnpm --filter @devbox/web dev",
     "dev:api": ".venv\\Scripts\\python -m uvicorn app.main:app --reload --app-dir services/api --port 8000",
+    "dev:target-agents": ".venv\\Scripts\\python -m uvicorn app.main:app --reload --app-dir services/target-agents --port 8010",
     "build": "pnpm --filter @devbox/web build",
     "typecheck": "pnpm -r --if-present typecheck",
-    "test": "pnpm api:test",
+    "test": "pnpm api:test && pnpm target-agents:test",
     "api:test": ".venv\\Scripts\\python -m pytest services/api/tests",
+    "target-agents:test": ".venv\\Scripts\\python -m pytest services/target-agents/tests",
     "api:openapi": ".venv\\Scripts\\python services/api/scripts/export_openapi.py",
     "generate:openapi": ".venv\\Scripts\\python services/api/scripts/export_openapi.py --output services/api/openapi.json && pnpm --filter @devbox/shared generate"
   },

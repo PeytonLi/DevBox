@@ -6,10 +6,19 @@ services:
       - "8000:8000"
     environment:
       DEVBOX_ALLOWED_ORIGINS: http://localhost:3000
+      DEVBOX_TARGET_AGENT_BASE_URL: http://target-agents:8010
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       LOCAL_MODEL_BASE_URL: ${LOCAL_MODEL_BASE_URL:-}
+    depends_on:
+      - target-agents
+
+  target-agents:
+    build:
+      context: ../services/target-agents
+    ports:
+      - "8010:8010"
 
   sandbox-smoke:
     build:

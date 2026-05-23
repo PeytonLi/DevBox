@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, createPrivateKey, timingSafeEqual } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
@@ -15,6 +15,10 @@ interface DiffWebhookPayload {
 
 const DEFAULT_REPOSITORY = "PeytonLi/DevBox";
 const DEFAULT_TARGET_PATH = ".agents/AGENTS.md";
+
+class WebhookConfigurationError extends Error {
+  status = 503;
+}
 
 export async function POST(request: Request) {
   const rawBody = await request.text();
@@ -48,6 +52,14 @@ export async function POST(request: Request) {
     return Response.json({ error: "Payload requires diffId and promptAfter" }, { status: 400 });
   }
 
+  try {
+    return Response.json(await createPullRequest(payload));
+  } catch (error) {
+    return githubErrorResponse(error);
+  }
+}
+
+async function createPullRequest(payload: DiffWebhookPayload) {
   const { owner, repo } = repositoryTarget();
   const baseBranch = process.env.GITHUB_BASE_BRANCH || "main";
   const targetPath = payload.targetPath || process.env.DEVBOX_TARGET_PROMPT_PATH || DEFAULT_TARGET_PATH;
@@ -84,11 +96,11 @@ export async function POST(request: Request) {
     body: prBody(payload, targetPath)
   });
 
-  return Response.json({
+  return {
     prUrl: pr.html_url,
     branch,
     commitSha: file.commit.sha
-  });
+  };
 }
 
 function verifySignature(rawBody: string, signature: string, secret: string) {
@@ -112,7 +124,31 @@ function repositoryTarget() {
 }
 
 function normalizePrivateKey(value: string) {
-  return value.replace(/\\n/g, "\n");
+  const normalized = value.trim().replace(/^['"]|['"]$/g, "").replace(/\\n/g, "\n").replace(/\r\n/g, "\n");
+  const candidates = [normalized];
+  const compactBody = normalized.replace(/\s+/g, "");
+
+  if (!normalized.includes("-----BEGIN") && /^[A-Za-z0-9+/=]+$/.test(compactBody) && compactBody.length > 512) {
+    candidates.unshift(toPem(compactBody, "RSA PRIVATE KEY"), toPem(compactBody, "PRIVATE KEY"));
+  }
+
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      createPrivateKey(candidate);
+      return candidate;
+    } catch {
+      // Try the next supported private key representation.
+    }
+  }
+
+  throw new WebhookConfigurationError(
+    "GitHub PR creation unavailable: GITHUB_APP_PRIVATE_KEY is not a valid private key. Use the full downloaded GitHub App private key, a PEM string with \\n escapes, or a base64 key body."
+  );
+}
+
+function toPem(base64Body: string, label: "PRIVATE KEY" | "RSA PRIVATE KEY") {
+  const lines = base64Body.match(/.{1,64}/g) ?? [base64Body];
+  return [`-----BEGIN ${label}-----`, ...lines, `-----END ${label}-----`].join("\n");
 }
 
 async function createOrResetBranch(octokit: Octokit, owner: string, repo: string, branch: string, sha: string) {
@@ -165,6 +201,56 @@ async function existingFileSha(
 
 function isGithubStatus(error: unknown, status: number) {
   return typeof error === "object" && error !== null && "status" in error && error.status === status;
+}
+
+function githubErrorResponse(error: unknown) {
+  if (error instanceof WebhookConfigurationError) {
+    return Response.json({ error: error.message }, { status: error.status });
+  }
+
+  const status = githubStatus(error) ?? 502;
+  const detail = githubErrorMessage(error);
+  const requestId = githubRequestId(error);
+  return Response.json(
+    {
+      error: `GitHub PR creation failed: ${detail}`,
+      ...(requestId ? { requestId } : {})
+    },
+    { status }
+  );
+}
+
+function githubStatus(error: unknown) {
+  if (typeof error !== "object" || error === null || !("status" in error)) {
+    return undefined;
+  }
+  const status = Number(error.status);
+  return Number.isInteger(status) && status >= 400 && status <= 599 ? status : undefined;
+}
+
+function githubErrorMessage(error: unknown) {
+  const responseData = typeof error === "object" && error !== null && "response" in error
+    ? (error.response as { data?: unknown } | undefined)?.data
+    : undefined;
+
+  if (typeof responseData === "object" && responseData !== null && "message" in responseData) {
+    const message = (responseData as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) {
+      return message;
+    }
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return "unknown GitHub API error";
+}
+
+function githubRequestId(error: unknown) {
+  const headers = typeof error === "object" && error !== null && "response" in error
+    ? (error.response as { headers?: Record<string, string | undefined> } | undefined)?.headers
+    : undefined;
+  return headers?.["x-github-request-id"];
 }
 
 function prBody(payload: DiffWebhookPayload, targetPath: string) {

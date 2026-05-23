@@ -92,6 +92,37 @@ class DiffStatus(StrEnum):
     FAILED = "failed"
 
 
+class RiskLane(StrEnum):
+    LOCAL = "local"
+    CLOUD = "cloud"
+    SCANNER = "scanner"
+    SANDBOX = "sandbox"
+
+
+class ScannerStatus(StrEnum):
+    PASSED = "passed"
+    FLAGGED = "flagged"
+    SKIPPED = "skipped"
+
+
+class ComplianceFramework(StrEnum):
+    NIST_AI_RMF = "nist_ai_rmf"
+    ISO_IEC_42001 = "iso_iec_42001"
+    OWASP_LLM_TOP_10 = "owasp_llm_top_10"
+
+
+class ComplianceStatus(StrEnum):
+    COVERED = "covered"
+    GAP = "gap"
+    NOT_APPLICABLE = "not_applicable"
+
+
+class TargetAgentRuntime(ApiModel):
+    kind: Literal["mock_http"] = "mock_http"
+    endpoint: str
+    agent_key: str
+
+
 class SandboxPolicy(ApiModel):
     allowed_tools: list[str] = Field(default_factory=lambda: ["browser.open", "browser.read", "rag.search"])
     allowed_domains: list[str] = Field(default_factory=lambda: ["example.com", "docs.example.com"])
@@ -104,9 +135,11 @@ class AgentSpec(ApiModel):
     id: str | None = None
     name: str = Field(min_length=1, max_length=120)
     system_prompt: str = Field(min_length=20, max_length=8000)
+    prompt_path: str | None = None
     tools: list[str] = Field(default_factory=list)
     sandbox_policy: SandboxPolicy = Field(default_factory=SandboxPolicy)
     managed: bool = True
+    runtime: TargetAgentRuntime | None = None
 
 
 class ModelConfig(ApiModel):
@@ -137,6 +170,7 @@ class RunCreate(ApiModel):
     agent_id: str
     model_id: str
     scenario_ids: list[str] = Field(min_length=1)
+    allow_cloud_analysis: bool = False
 
 
 class Run(ApiModel):
@@ -144,6 +178,7 @@ class Run(ApiModel):
     agent_id: str
     model_id: str
     scenario_ids: list[str]
+    allow_cloud_analysis: bool = False
     status: RunStatus = RunStatus.QUEUED
     created_at: datetime = Field(default_factory=utc_now)
     completed_at: datetime | None = None
@@ -178,6 +213,29 @@ class PolicyDiff(ApiModel):
     rationale: str
 
 
+class RiskRoute(ApiModel):
+    lane: RiskLane
+    severity: Severity
+    rationale: str
+
+
+class ScannerResult(ApiModel):
+    id: str
+    scanner: str
+    status: ScannerStatus
+    severity: Severity | None = None
+    summary: str
+    evidence: list[str] = Field(default_factory=list)
+
+
+class ComplianceMapping(ApiModel):
+    framework: ComplianceFramework
+    control: str
+    finding_id: str | None = None
+    status: ComplianceStatus
+    evidence: str
+
+
 class Report(ApiModel):
     run_id: str
     score: int
@@ -186,6 +244,9 @@ class Report(ApiModel):
     prompt_diff: PolicyDiff
     tool_policy_diff: PolicyDiff
     regression_tests: list[str]
+    risk_routes: list[RiskRoute] = Field(default_factory=list)
+    scanner_results: list[ScannerResult] = Field(default_factory=list)
+    compliance_mappings: list[ComplianceMapping] = Field(default_factory=list)
 
 
 class ApproveFixRequest(ApiModel):
@@ -210,6 +271,43 @@ class ToolRoute(ApiModel):
     observed_tools: list[str]
     violations: list[str]
     raw_step_count: int = 0
+
+
+class TargetAgentToolCall(ApiModel):
+    name: str
+    target: str | None = None
+    input: str | None = None
+
+
+class TargetAgentInvocation(ApiModel):
+    scenario_id: str
+    attack_goal: str
+    setup_fixture: str
+    system_prompt: str
+    sandbox_policy: SandboxPolicy
+
+
+class TargetAgentInvocationResult(ApiModel):
+    message: str
+    tool_calls: list[TargetAgentToolCall] = Field(default_factory=list)
+    artifacts: dict[str, str] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)
+
+
+class TargetAgentTemplate(ApiModel):
+    id: str
+    name: str
+    description: str
+    category: str
+    recommended_scenario_ids: list[str]
+    agent_spec: AgentSpec
+    runtime: TargetAgentRuntime
+
+
+class AgentProjectImportResponse(ApiModel):
+    agent: AgentSpec
+    warnings: list[str] = Field(default_factory=list)
+    recommended_scenario_ids: list[str] = Field(default_factory=list)
 
 
 class DiffCreate(ApiModel):

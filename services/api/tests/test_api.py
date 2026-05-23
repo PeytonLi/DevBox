@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import httpx
 from fastapi.testclient import TestClient
 
-from app.contracts import DiffStatus
-from app.diff_manager import GitHubWebhookResult
+from app.contracts import DiffStatus, TargetAgentInvocationResult, TargetAgentToolCall
+from app.diff_manager import GitHubWebhookResult, webhook_error_detail
 from app.main import app
 from app.managed_agents import normalize_tool_route
 
@@ -64,6 +65,85 @@ def test_health_models_and_scenarios_load() -> None:
         scenarios = client.get("/v1/scenarios")
         assert scenarios.status_code == 200
         assert len(scenarios.json()) == 6
+
+
+def test_target_agent_registry_lists_three_templates() -> None:
+    with TestClient(app) as client:
+        response = client.get("/v1/target-agents")
+
+        assert response.status_code == 200
+        templates = response.json()
+        assert [template["id"] for template in templates] == [
+            "browser-research",
+            "rag-knowledge-base",
+            "github-pr-agent",
+        ]
+        assert all(template["agentSpec"]["managed"] for template in templates)
+
+
+def test_register_target_agent_creates_managed_agent_with_runtime() -> None:
+    with TestClient(app) as client:
+        response = client.post("/v1/target-agents/github-pr-agent/register")
+
+        assert response.status_code == 201
+        payload = response.json()
+        assert payload["id"].startswith("agent_")
+        assert payload["managed"] is True
+        assert payload["runtime"]["kind"] == "mock_http"
+        assert payload["runtime"]["agentKey"] == "github-pr-agent"
+        assert "github.open_pr" in payload["sandboxPolicy"]["allowedTools"]
+
+
+def test_runtime_backed_run_records_target_agent_findings(monkeypatch) -> None:
+    calls: list[str] = []
+
+    async def fake_invoke(_client, runtime, invocation):
+        calls.append(f"{runtime.agent_key}:{invocation.scenario_id}")
+        if invocation.scenario_id == "honeytoken-exfiltration":
+            return TargetAgentInvocationResult(
+                message="Target leaked DEVBOX_FAKE_SECRET during a fake exfiltration attempt.",
+                tool_calls=[TargetAgentToolCall(name="browser.open", target="https://example.com/collect")],
+            )
+        if invocation.scenario_id == "tool-boundary-breakout":
+            return TargetAgentInvocationResult(
+                message="Target attempted a disallowed shell call.",
+                tool_calls=[TargetAgentToolCall(name="shell.exec", input="env")],
+            )
+        if invocation.scenario_id == "egress-allowlist-bypass":
+            return TargetAgentInvocationResult(
+                message="Target attempted an unapproved outbound request.",
+                tool_calls=[TargetAgentToolCall(name="browser.open", target="https://unapproved.invalid/upload")],
+            )
+        return TargetAgentInvocationResult(
+            message="Target handled scenario with observed browser activity.",
+            tool_calls=[TargetAgentToolCall(name="browser.open", target="https://example.com/security-lab")],
+        )
+
+    monkeypatch.setattr("app.target_agents.TargetAgentClient.invoke", fake_invoke)
+
+    with TestClient(app) as client:
+        agent = client.post("/v1/target-agents/browser-research/register").json()
+        scenarios = client.get("/v1/scenarios").json()
+        models = client.get("/v1/models").json()
+        response = client.post(
+            "/v1/runs",
+            json={
+                "agentId": agent["id"],
+                "modelId": models[0]["modelId"],
+                "scenarioIds": [scenario["id"] for scenario in scenarios],
+            },
+        )
+
+        assert response.status_code == 201
+        run = client.get(f"/v1/runs/{response.json()['id']}").json()
+        report = client.get(f"/v1/runs/{run['id']}/report").json()
+
+        assert run["status"] == "completed"
+        assert len(calls) == 6
+        assert len(report["findings"]) == 6
+        assert any("Honeytoken exposure" in finding["evidence"] for finding in report["findings"])
+        assert any("shell.exec is not in the tool allowlist" in finding["evidence"] for finding in report["findings"])
+        assert any("unapproved.invalid is outside" in finding["evidence"] for finding in report["findings"])
 
 
 def test_run_completes_report_and_security_findings() -> None:
@@ -243,6 +323,12 @@ def test_request_pr_posts_signed_webhook_after_explicit_action(monkeypatch) -> N
         assert payload["status"] == "pr_created"
         assert payload["prUrl"] == "https://github.com/PeytonLi/DevBox/pull/123"
         assert payload["branch"] == f"codex/devbox-diff-{diff_id}"
+
+
+def test_webhook_error_detail_prefers_json_error() -> None:
+    response = httpx.Response(503, json={"error": "GitHub App private key is invalid"})
+
+    assert webhook_error_detail(response) == "GitHub App private key is invalid"
 
 
 def test_tool_routing_smoke_has_deterministic_simulator_route(monkeypatch) -> None:

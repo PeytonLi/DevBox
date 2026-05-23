@@ -9,7 +9,8 @@ import type {
   RequestPrResponse,
   Run,
   RunCreate,
-  Scenario
+  Scenario,
+  TargetAgentTemplate
 } from "@devbox/shared";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -40,6 +41,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   listModels: () => request<ModelConfig[]>("/v1/models"),
   listScenarios: () => request<Scenario[]>("/v1/scenarios"),
+  listTargetAgents: () => request<TargetAgentTemplate[]>("/v1/target-agents"),
+  registerTargetAgent: (targetAgentId: string) =>
+    request<AgentSpec>(`/v1/target-agents/${targetAgentId}/register`, {
+      method: "POST"
+    }),
   createAgent: (agent: AgentSpec) =>
     request<AgentSpec>("/v1/agents", {
       method: "POST",

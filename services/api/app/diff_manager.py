@@ -139,7 +139,7 @@ async def send_signed_github_webhook(
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.post(webhook_url, content=body, headers=headers)
     if response.status_code >= 400:
-        raise DiffManagerError(response.status_code, f"GitHub PR creation failed: {response.text}")
+        raise DiffManagerError(response.status_code, f"GitHub PR creation failed: {webhook_error_detail(response)}")
 
     data = response.json()
     pr_url = data.get("prUrl")
@@ -150,3 +150,20 @@ async def send_signed_github_webhook(
         branch=data.get("branch") if isinstance(data.get("branch"), str) else None,
         commit_sha=data.get("commitSha") if isinstance(data.get("commitSha"), str) else None,
     )
+
+
+def webhook_error_detail(response: httpx.Response) -> str:
+    try:
+        data = response.json()
+    except ValueError:
+        return response.text
+
+    if isinstance(data, dict):
+        error = data.get("error")
+        if isinstance(error, str) and error.strip():
+            return error
+        detail = data.get("detail")
+        if isinstance(detail, str) and detail.strip():
+            return detail
+
+    return response.text

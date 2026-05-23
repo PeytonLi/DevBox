@@ -8,6 +8,7 @@ The current dashboard also includes a focused `Prompt Input -> Diff Output` flow
 
 - `apps/web`: Next.js App Router dashboard.
 - `services/api`: FastAPI orchestration API.
+- `services/target-agents`: local FastAPI mock production agents for sandbox testing.
 - `packages/shared`: TypeScript contracts and generated OpenAPI types.
 - `packages/policies`: shared scenario metadata for frontend/package consumers.
 - `infra`: Docker Compose and sandbox container.
@@ -24,12 +25,13 @@ pnpm dev
 ```
 
 Open the dashboard at `http://localhost:3000` and the API docs at `http://localhost:8000/docs`.
+The target-agent service runs at `http://localhost:8010`.
 
 ## Verification
 
 ```bash
 pnpm typecheck
-.venv\Scripts\python -m pytest services/api/tests
+pnpm test
 pnpm build
 docker build -f infra/sandbox/Dockerfile .
 ```
@@ -60,4 +62,12 @@ GITHUB_APP_INSTALLATION_ID=...
 GITHUB_REPOSITORY=PeytonLi/DevBox
 ```
 
+`GITHUB_APP_PRIVATE_KEY` may be the full downloaded PEM block, a PEM string with `\n` escapes, or the base64 key body from that PEM. DevBox validates and normalizes it before calling Octokit.
+
 The FastAPI service signs `POST /v1/diffs/{diff_id}/request-pr` payloads and sends them to the Next.js route at `DEVBOX_GITHUB_WEBHOOK_URL`, which defaults to `http://localhost:3000/api/github/webhook`.
+
+## Target Agent Test Lab
+
+`pnpm dev` also starts a local target-agent service with Browser Research, RAG Knowledge Base, and GitHub PR mock agents. These agents expose production-like HTTP boundaries and fake tools, but use only synthetic data and honeytokens. The dashboard Target Agents lane registers one of these templates, runs selected scenarios through the existing run/report/WebSocket API, and lets you approve managed prompt and tool-policy fixes.
+
+Set `DEVBOX_TARGET_AGENT_BASE_URL` when the target-agent service is not running on `http://localhost:8010`.

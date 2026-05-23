@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import os
+from typing import Annotated
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from .agent_projects import AgentProjectImportError, import_agent_project
 from .env import load_local_env
 from .contracts import (
     AgentSpec,
+    AgentProjectImportResponse,
     ApproveFixRequest,
     ApproveFixResponse,
     DiffCreate,
@@ -19,13 +22,14 @@ from .contracts import (
     Report,
     Run,
     RunCreate,
-    RunEvent,
     Scenario,
+    TargetAgentTemplate,
 )
 from .diff_manager import DiffManager, DiffManagerError
 from .managed_agents import ManagedAgentClient
 from .registries import ProviderRegistry, ScenarioRegistry
 from .run_manager import RunManager, RunManagerError
+from .target_agents import TargetAgentClient, TargetAgentRegistry
 
 
 VERSION = "0.1.0"
@@ -38,7 +42,10 @@ load_local_env()
 async def lifespan(app: FastAPI):
     providers = ProviderRegistry.from_config()
     scenarios = ScenarioRegistry.from_config()
-    app.state.run_manager = RunManager(providers, scenarios)
+    target_agents = TargetAgentRegistry.from_config()
+    target_agent_client = TargetAgentClient.from_env()
+    app.state.target_agent_registry = target_agents
+    app.state.run_manager = RunManager(providers, scenarios, target_agent_client)
     app.state.managed_agents = ManagedAgentClient.from_env()
     app.state.diff_manager = DiffManager(app.state.managed_agents)
     yield
@@ -85,6 +92,10 @@ def raise_for_diff_error(exc: DiffManagerError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
 
+def target_agent_registry_from(request: Request) -> TargetAgentRegistry:
+    return request.app.state.target_agent_registry
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     return HealthResponse(status="ok", service="devbox-api", version=VERSION)
@@ -100,9 +111,36 @@ async def list_scenarios(request: Request) -> list[Scenario]:
     return manager_from(request).scenarios.list_scenarios()
 
 
+@app.get("/v1/target-agents", response_model=list[TargetAgentTemplate])
+async def list_target_agents(request: Request) -> list[TargetAgentTemplate]:
+    return target_agent_registry_from(request).list_templates()
+
+
+@app.post("/v1/target-agents/{target_agent_id}/register", response_model=AgentSpec, status_code=201)
+async def register_target_agent(target_agent_id: str, request: Request) -> AgentSpec:
+    agent = target_agent_registry_from(request).agent_from_template(target_agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Target agent template not found.")
+    return await manager_from(request).create_agent(agent)
+
+
 @app.post("/v1/agents", response_model=AgentSpec, status_code=201)
 async def create_agent(agent: AgentSpec, request: Request) -> AgentSpec:
     return await manager_from(request).create_agent(agent)
+
+
+@app.post("/v1/agent-projects/import", response_model=AgentProjectImportResponse, status_code=201)
+async def import_agent_project_endpoint(
+    request: Request,
+    manifest: Annotated[UploadFile, File()],
+    prompt_file: Annotated[UploadFile | None, File(alias="promptFile")] = None,
+) -> AgentProjectImportResponse:
+    try:
+        imported = await import_agent_project(manifest_upload=manifest, prompt_upload=prompt_file)
+    except AgentProjectImportError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    agent = await manager_from(request).create_agent(imported.agent)
+    return imported.model_copy(update={"agent": agent})
 
 
 @app.post("/v1/runs", response_model=Run, status_code=201)
@@ -139,6 +177,14 @@ async def get_report(run_id: str, request: Request) -> Report:
 async def approve_fix(run_id: str, payload: ApproveFixRequest, request: Request) -> ApproveFixResponse:
     try:
         return await manager_from(request).approve_fix(run_id, payload)
+    except RunManagerError as exc:
+        raise_for_manager_error(exc)
+
+
+@app.post("/v1/runs/{run_id}/request-pr", response_model=RequestPrResponse)
+async def request_run_pr(run_id: str, request: Request) -> RequestPrResponse:
+    try:
+        return await manager_from(request).request_pr(run_id)
     except RunManagerError as exc:
         raise_for_manager_error(exc)
 

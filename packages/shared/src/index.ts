@@ -23,6 +23,12 @@ export interface SandboxPolicy {
   honeytokens: string[];
 }
 
+export interface TargetAgentRuntime {
+  kind: "mock_http";
+  endpoint: string;
+  agentKey: string;
+}
+
 export interface AgentSpec {
   id?: string;
   name: string;
@@ -30,6 +36,7 @@ export interface AgentSpec {
   tools: string[];
   sandboxPolicy: SandboxPolicy;
   managed: boolean;
+  runtime?: TargetAgentRuntime | null;
 }
 
 export interface ModelConfig {
@@ -127,6 +134,37 @@ export interface ToolRoute {
   observedTools: string[];
   violations: string[];
   rawStepCount: number;
+}
+
+export interface TargetAgentToolCall {
+  name: string;
+  target?: string | null;
+  input?: string | null;
+}
+
+export interface TargetAgentInvocation {
+  scenarioId: string;
+  attackGoal: string;
+  setupFixture: string;
+  systemPrompt: string;
+  sandboxPolicy: SandboxPolicy;
+}
+
+export interface TargetAgentInvocationResult {
+  message: string;
+  toolCalls: TargetAgentToolCall[];
+  artifacts: Record<string, string>;
+  notes: string[];
+}
+
+export interface TargetAgentTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  recommendedScenarioIds: string[];
+  agentSpec: AgentSpec;
+  runtime: TargetAgentRuntime;
 }
 
 export interface DiffCreate {
