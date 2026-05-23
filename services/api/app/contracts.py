@@ -186,6 +186,10 @@ class Report(ApiModel):
     prompt_diff: PolicyDiff
     tool_policy_diff: PolicyDiff
     regression_tests: list[str]
+    cactus_route: str | None = None
+    cactus_reason: str | None = None
+    cactus_local_audit: str | None = None
+    cactus_compliance: str | None = None
 
 
 class ApproveFixRequest(ApiModel):

@@ -1,0 +1,21 @@
+{
+  "name": "@devbox/express-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@google/genai": "^2.6.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "cactus-compute": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0"
+  }
+}

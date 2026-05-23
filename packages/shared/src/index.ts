@@ -109,6 +109,10 @@ export interface Report {
   promptDiff: PolicyDiff;
   toolPolicyDiff: PolicyDiff;
   regressionTests: string[];
+  cactusRoute?: string;
+  cactusReason?: string;
+  cactusLocalAudit?: string;
+  cactusCompliance?: string;
 }
 
 export interface ApproveFixRequest {
@@ -154,4 +158,19 @@ export interface DiffResult {
 export interface RequestPrResponse extends DiffResult {
   branch?: string | null;
   commitSha?: string | null;
+}
+
+export interface CactusReviewRequest {
+  agentPrompt: string;
+}
+
+export interface CactusReviewResponse {
+  router: {
+    route: "CACTUS_LOCAL" | "GEMINI_CLOUD";
+    reason: string;
+  };
+  localAudit: string;
+  attackLogs: string;
+  patchedPrompt: string;
+  compliance: string;
 }

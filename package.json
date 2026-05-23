@@ -7,15 +7,16 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "concurrently -n web,api -c cyan,magenta \"pnpm dev:web\" \"pnpm dev:api\"",
+    "dev": "concurrently -n web,api,express -c cyan,magenta,yellow \"pnpm dev:web\" \"pnpm dev:api\" \"pnpm dev:express\"",
     "dev:web": "dotenv -e .env -- pnpm --filter @devbox/web dev",
-    "dev:api": ".venv\\Scripts\\python -m uvicorn app.main:app --reload --app-dir services/api --port 8000",
+    "dev:api": "python3 -m uvicorn app.main:app --reload --app-dir services/api --port 8000",
+    "dev:express": "pnpm --filter @devbox/express-api dev",
     "build": "pnpm --filter @devbox/web build",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm api:test",
-    "api:test": ".venv\\Scripts\\python -m pytest services/api/tests",
-    "api:openapi": ".venv\\Scripts\\python services/api/scripts/export_openapi.py",
-    "generate:openapi": ".venv\\Scripts\\python services/api/scripts/export_openapi.py --output services/api/openapi.json && pnpm --filter @devbox/shared generate"
+    "api:test": "python3 -m pytest services/api/tests",
+    "api:openapi": "python3 services/api/scripts/export_openapi.py",
+    "generate:openapi": "python3 services/api/scripts/export_openapi.py --output services/api/openapi.json && pnpm --filter @devbox/shared generate"
   },
   "devDependencies": {
     "concurrently": "9.2.1",

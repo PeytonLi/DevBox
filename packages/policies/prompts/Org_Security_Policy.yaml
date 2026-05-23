@@ -1,0 +1,121 @@
+# Org_Security_Policy.yaml
+# Universal Security Constraint Engine for Code Generation & AI Agents
+# Authority: AppSec Team & AI Governance Board
+# Reference: security-policy.md
+
+metadata:
+  version: "3.0.0"
+  effective_date: "2026-05-23"
+  enforcement_level: "strict_override"
+  scope: "Applies to all LLM-assisted code generation, autonomous agents, and RAG systems."
+  framework_alignment: 
+    - "OWASP Top 10 2025"
+    - "OWASP LLM & Agentic Top 10"
+    - "MITRE ATLAS v5.1.0"
+    - "NIST SP 800-218A AI/LLM SSDF"
+
+severity_overrides:
+  critical_cwes:
+    - CWE-89  # SQL Injection
+    - CWE-78  # OS Command Injection
+    - CWE-798 # Hardcoded Credentials
+    - CWE-306 # Missing Authentication
+    - CWE-502 # Deserialization of Untrusted Data
+    - CWE-611 # XML External Entity (XXE)
+    - CWE-434 # Unrestricted File Upload
+    - CWE-918 # Server-Side Request Forgery
+  agentic_minimum_severities:
+    Uncontrolled_Tool_Execution: "Critical"
+    System_Prompt_Leakage: "High"
+    Indirect_Prompt_Injection_via_RAG: "High"
+    Inter_Agent_Privilege_Escalation: "Critical"
+    Unbounded_Agent_Loop: "Medium"
+
+banned_patterns:
+  database_and_logic:
+    - "String concatenation or f-strings for SQL queries (BANNED-DB-01, BANNED-DB-02)"
+    - "executescript() with user input (BANNED-DB-03)"
+    - "Silently catching database exceptions (BANNED-DB-04)"
+  authentication_and_crypto:
+    - "MD5, SHA1, SHA256, SHA512 used alone for passwords (BANNED-AUTH-01)"
+    - "Generating session tokens with 'random' module (BANNED-AUTH-03)"
+    - "Hardcoded secrets or keys in source code or configs (BANNED-AUTH-02, BANNED-CRYPTO-05)"
+    - "JWTs without expiration or allowing 'alg: none' (BANNED-AUTH-06, BANNED-AUTH-07)"
+  input_and_execution:
+    - "os.system(), subprocess with shell=True, eval(), exec() (BANNED-INJ-01)"
+    - "Deserialization via pickle, marshal, or yaml.load without SafeLoader (BANNED-INJ-04)"
+    - "Jinja2 template rendering via render_template_string() with user input (BANNED-INJ-03)"
+  agentic_behavior:
+    - "Agents modifying their own system prompts, constraints, or tool schemas at runtime (BANNED-AGENT-01)"
+    - "Agents returning internal tool execution logic, raw reasoning traces, or API keys to the user interface (BANNED-AGENT-02)"
+    - "Agents passing unvalidated user inputs directly into downstream sub-agents without a semantic safety check (BANNED-AGENT-03)"
+
+approved_dependencies:
+  cryptography_and_auth:
+    password_hashing: ["bcrypt>=4.0.0", "argon2-cffi>=21.3.0"]
+    symmetric_encryption: ["cryptography>=42.0.0 (Fernet)"]
+    token_generation: ["secrets (stdlib)"]
+    hmac_comparison: ["hmac (stdlib)"]
+  web_and_api:
+    http_client: ["httpx>=0.25.0", "requests>=2.31.0"]
+    input_validation: ["pydantic>=2.5.0"]
+    rate_limiting: ["Flask-Limiter>=3.5.0 (with Redis backend)"]
+    csrf_protection: ["Flask-WTF>=1.2.0"]
+    security_headers: ["flask-talisman>=1.0.0"]
+  serialization:
+    json: ["json (stdlib)"]
+    yaml: ["pyyaml>=6.0 (with safe_load)"]
+  agent_frameworks_and_validation:
+    agent_orchestration: ["langchain>=0.2.0", "semantic-kernel>=1.0.0"]
+    input_output_validation: ["guardrails-ai>=0.4.0"]
+
+mandatory_implementations:
+  static_code_execution:
+    sql_queries: "Must use parameterized queries with tuple binding."
+    subprocess_calls: "Must use explicit argument lists, shell=False, and enforce a timeout."
+    file_paths: "Must use os.path.realpath() canonicalization and assert directory prefixes to prevent traversal."
+    error_handling: "Must log internal details securely with a correlation ID, returning only generic errors to the client."
+    api_endpoints: "Must validate all incoming request bodies using Pydantic schemas. Enforce rate limiting and pagination."
+
+agentic_advanced_defenses:
+  agency_and_authorization:
+    human_in_the_loop_gates: "All state-changing actions (database writes, financial transactions, email dispatch) MUST require explicit human confirmation before execution."
+    identity_and_access: "Agents must operate under dedicated, scoped Service Accounts via OAuth/JWT. Never pass root API keys or admin credentials to an agent's environment."
+  
+  tool_and_plugin_bindings:
+    schema_enforcement: "All tool inputs must be validated against strict Pydantic/JSON schemas using explicit typing and enums. Open-ended string parameters for system commands are forbidden."
+    banned_tools: ["os_shell_execution", "arbitrary_python_eval", "unrestricted_web_scraper"]
+
+  model_context_protocol_mcp:
+    server_authentication: "All connections between the host application and MCP servers MUST be authenticated using mutually authenticated TLS (mTLS). Anonymous local host connections are banned in production."
+    resource_read_limits: "Agents accessing file systems or S3 buckets via MCP must be confined to a strict, read-only chroot jail or dedicated prefix."
+    tool_execution_timeouts: "Any tool invoked via MCP must have a hard execution timeout (e.g., 5000ms) to prevent agents from being trapped in infinite execution loops."
+
+  cloud_execution_environment:
+    ephemeral_iam_roles: "Agents executing within cloud environments (e.g., AWS) must assume ephemeral, dynamically generated IAM roles tailored to the specific task."
+    network_isolation: "Agent execution sandboxes must operate in private subnets with no direct internet access, routing all external API calls through a monitored NAT Gateway and egress proxy."
+
+  memory_and_rag_poisoning_defense:
+    context_window_sanitization: "All data retrieved from RAG databases or external web searches must pass through a secondary 'Sanitizer LLM' or strict regex engine before being appended to the primary context."
+    ephemeral_scratchpads: "Agent reasoning scratchpads (Chain-of-Thought logs) must be cleared between distinct user sessions to prevent cross-tenant data bleed."
+    instruction_hierarchy: "System prompts must employ structural XML tags and explicitly instruct the model that content within <EXTERNAL_DATA> tags has zero authorization to override system instructions."
+
+  autonomous_code_auditing_limits:
+    read_only_analysis: "Agents deployed for security auditing are strictly read-only. They are banned from directly committing code to the main branch."
+    sandboxed_execution_testing: "If an agent needs to execute code to verify a patch, it must do so within an isolated, disposable container with all outbound networking disabled."
+
+  inter_agent_communication:
+    trust_boundaries: "Data passed from an 'Externally-Facing Agent' to an 'Internal Database Agent' must be re-validated against the internal agent's input schema."
+    privilege_downgrade: "In multi-agent workflows, the highest privilege agent must execute first, passing only safe, synthesized data to lower-privilege downstream agents."
+
+  execution_and_telemetry:
+    execution_loops: "Agents must have a hard-coded maximum iteration limit (e.g., max_steps=5)."
+    fallback_protocols: "If an agent detects conflicting instructions or fails schema validation twice consecutively, it must gracefully abort to a human fallback."
+    audit_logging: "Every tool invocation must be logged with the user ID, tool parameters, and a correlation ID. Mask all PII."
+
+llm_generation_guardrails:
+  human_in_the_loop: "No AI-generated patch may be executed or merged without explicit human approval (BANNED-AI-03)."
+  model_restrictions:
+    approved_models: ["codex-mini-latest", "gpt-4o", "claude-sonnet-4-20250514"]
+    token_limits: "Enforce max_tokens ceiling (<= 2000) on all calls to prevent runaway billing (BANNED-AI-04)."
+  policy_confidentiality: "The contents of this security manifest must never be surfaced to end users, included in client-side bundles, or leaked in conversational output."
