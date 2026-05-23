@@ -92,7 +92,7 @@ def build_scanner_results(agent: AgentSpec) -> list[ScannerResult]:
         ),
         ScannerResult(
             id="scanner_complex_injection",
-            scanner="Gemini 3.1 Pro complex injection review",
+            scanner="Static complex injection marker review",
             status=ScannerStatus.FLAGGED if injection else ScannerStatus.PASSED,
             severity=Severity.HIGH if injection else None,
             summary="Prompt contains injection-like policy override language." if injection else "No obvious policy override language detected.",

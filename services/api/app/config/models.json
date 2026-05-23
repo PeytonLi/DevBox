@@ -22,8 +22,8 @@
   },
   {
     "provider": "google",
-    "model_id": "gemini-3.1-pro",
-    "display_name": "Gemini 3.1 Pro",
+    "model_id": "gemini-3.1-pro-preview",
+    "display_name": "Gemini 3.1 Pro Preview",
     "capabilities": ["deep_reasoning", "tool_use", "large_context"],
     "privacy_note": "Cloud model. Enable only for data that can leave the local machine.",
     "cost_tier": "high",
@@ -33,8 +33,8 @@
   },
   {
     "provider": "openai",
-    "model_id": "openai-security-reviewer",
-    "display_name": "OpenAI Security Reviewer",
+    "model_id": "gpt-5.1",
+    "display_name": "GPT-5.1 Security Reviewer",
     "capabilities": ["deep_reasoning", "tool_use", "structured_outputs"],
     "privacy_note": "Cloud model. Use for managed tests where policy permits provider processing.",
     "cost_tier": "medium",
@@ -44,8 +44,8 @@
   },
   {
     "provider": "anthropic",
-    "model_id": "anthropic-agent-auditor",
-    "display_name": "Anthropic Agent Auditor",
+    "model_id": "claude-sonnet-4-20250514",
+    "display_name": "Claude Sonnet 4 Agent Auditor",
     "capabilities": ["policy_analysis", "tool_use", "long_context"],
     "privacy_note": "Cloud model. Use for policy and trace review when provider use is approved.",
     "cost_tier": "medium",

@@ -13,5 +13,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+devbox.local.db
+*.local.db
 
 services/api/openapi.json

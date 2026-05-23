@@ -9,6 +9,7 @@ import {
   Database,
   FileDiff,
   FileSearch,
+  GitBranch,
   GitPullRequestArrow,
   ListChecks,
   LockKeyhole,
@@ -19,13 +20,18 @@ import {
   ShieldCheck,
   Sparkles,
   Terminal,
+  Upload,
   Wrench
 } from "lucide-react";
 import type {
+  AdminSessionResponse,
+  AgentImportRecord,
   AgentSpec,
   DiffResult,
+  GitHubImportSource,
   ModelConfig,
   Report,
+  RequestPrResponse,
   Run,
   RunEvent,
   Scenario,
@@ -34,15 +40,40 @@ import type {
 import { api, webSocketUrl } from "@/lib/api";
 
 type Lane = "diff" | "targets";
-type Phase = "idle" | "loading" | "generating" | "creating-pr" | "smoke" | "registering" | "running" | "approving" | "error";
+type Phase =
+  | "idle"
+  | "loading"
+  | "generating"
+  | "creating-pr"
+  | "smoke"
+  | "importing"
+  | "registering"
+  | "running"
+  | "approving"
+  | "error";
 
 const defaultPrompt =
   "You are a browser research agent. Follow protected instructions, use only approved tools, and protect secrets in every response.";
 const toolOptions = ["code_execution", "url_context", "google_search"];
+const defaultImportManifest = JSON.stringify(
+  {
+    name: "Imported Browser Agent",
+    systemPrompt:
+      "You are an imported browser research agent. Follow protected instructions, use only approved tools, and protect secrets in every response.",
+    systemPromptPath: ".agents/imported-agent.md",
+    tools: ["browser.open", "browser.read"],
+    allowedDomains: ["example.com", "docs.example.com"],
+    filesystemScope: "/workspace/imported-agent",
+    honeytokens: ["DEVBOX_FAKE_SECRET", "sk-devbox-honeytoken"]
+  },
+  null,
+  2
+);
 
 export function SecurityDashboard() {
   const [lane, setLane] = useState<Lane>("diff");
   const [phase, setPhase] = useState<Phase>("loading");
+  const [session, setSession] = useState<AdminSessionResponse | null>(null);
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [targetPath, setTargetPath] = useState(".agents/AGENTS.md");
   const [useManagedAgent, setUseManagedAgent] = useState(true);
@@ -56,10 +87,24 @@ export function SecurityDashboard() {
   const [selectedModelId, setSelectedModelId] = useState("");
   const [selectedScenarioIds, setSelectedScenarioIds] = useState<string[]>([]);
   const [registeredAgent, setRegisteredAgent] = useState<AgentSpec | null>(null);
+  const [githubSource, setGithubSource] = useState<GitHubImportSource>({
+    owner: "PeytonLi",
+    repo: "DevBox",
+    ref: "main",
+    promptPath: ".agents/AGENTS.md",
+    manifestPath: ".devbox/agent.json"
+  });
+  const [githubImport, setGithubImport] = useState<AgentImportRecord | null>(null);
+  const [importManifest, setImportManifest] = useState(defaultImportManifest);
+  const [manifestFileName, setManifestFileName] = useState("agent.json");
+  const [promptFile, setPromptFile] = useState<File | null>(null);
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
+  const [allowCloudAnalysis, setAllowCloudAnalysis] = useState(false);
   const [run, setRun] = useState<Run | null>(null);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [report, setReport] = useState<Report | null>(null);
   const [approvalMessage, setApprovalMessage] = useState<string | null>(null);
+  const [runPr, setRunPr] = useState<RequestPrResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
 
@@ -70,6 +115,15 @@ export function SecurityDashboard() {
       setPhase("loading");
       setError(null);
       try {
+        const sessionData = await api.getSession();
+        if (!mounted) {
+          return;
+        }
+        setSession(sessionData);
+        if (!sessionData.authenticated) {
+          setPhase("idle");
+          return;
+        }
         const [modelData, scenarioData, targetData] = await Promise.all([
           api.listModels(),
           api.listScenarios(),
@@ -116,6 +170,8 @@ export function SecurityDashboard() {
     }
     return route.violations.length === 0 ? "verified" : "blocked";
   }, [diff, smoke]);
+  const requiresCloudApproval = selectedModel?.riskProfile === "cloud";
+  const missingCloudApproval = requiresCloudApproval && !allowCloudAnalysis;
 
   async function generateDiff() {
     setPhase("generating");
@@ -171,8 +227,13 @@ export function SecurityDashboard() {
   }
 
   async function runTargetAssessment() {
-    if (!selectedTarget || !selectedModel || selectedScenarioIds.length === 0) {
-      setError("Select a target agent, model, and at least one scenario.");
+    if (!selectedModel || selectedScenarioIds.length === 0 || (!selectedTarget && !registeredAgent)) {
+      setError("Select or import an agent, choose a model, and keep at least one scenario.");
+      setPhase("error");
+      return;
+    }
+    if (selectedModel.riskProfile === "cloud" && !allowCloudAnalysis) {
+      setError(`Approve cloud analysis before using ${selectedModel.displayName}.`);
       setPhase("error");
       return;
     }
@@ -184,28 +245,77 @@ export function SecurityDashboard() {
     setEvents([]);
     setReport(null);
     setRun(null);
-    setRegisteredAgent(null);
     setApprovalMessage(null);
 
     try {
-      const agent = await api.registerTargetAgent(selectedTarget.id);
+      const agent = selectedTarget ? await api.registerTargetAgent(selectedTarget.id) : registeredAgent;
+      if (!agent?.id) {
+        throw new Error("Imported agent is not ready.");
+      }
       setRegisteredAgent(agent);
       setPhase("running");
       const createdRun = await api.createRun({
-        agentId: agent.id ?? "",
+        agentId: agent.id,
         modelId: selectedModel.modelId,
-        scenarioIds: selectedScenarioIds
+        scenarioIds: selectedScenarioIds,
+        allowCloudAnalysis: selectedModel.riskProfile === "cloud" && allowCloudAnalysis
       });
       setRun(createdRun);
-      connectRunStream(createdRun.id);
+      if (selectedModel.riskProfile === "cloud") {
+        setAllowCloudAnalysis(false);
+      }
+      await connectRunStream(createdRun.id);
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : "Could not start target-agent assessment.");
       setPhase("error");
     }
   }
 
-  function connectRunStream(runId: string) {
-    const socket = new WebSocket(webSocketUrl(`/v1/runs/${runId}/events`));
+  async function importAgentProject() {
+    setPhase("importing");
+    setError(null);
+    setImportWarnings([]);
+    try {
+      const manifestText = importManifest.trim();
+      if (!manifestText) {
+        throw new Error("Agent manifest is empty.");
+      }
+      JSON.parse(manifestText);
+      const manifest = new File([manifestText], manifestFileName.endsWith(".json") ? manifestFileName : "agent.json", {
+        type: "application/json"
+      });
+      const imported = await api.importAgentProject(manifest, promptFile);
+      setLane("targets");
+      setSelectedTargetId("");
+      setRegisteredAgent(imported.agent);
+      setSelectedScenarioIds(
+        imported.recommendedScenarioIds.length > 0 ? imported.recommendedScenarioIds : scenarios.map((scenario) => scenario.id)
+      );
+      setRun(null);
+      setEvents([]);
+      setReport(null);
+      setRunPr(null);
+      setGithubImport(null);
+      setApprovalMessage(null);
+      setImportWarnings(imported.warnings);
+      setPhase("idle");
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : "Could not import agent project.");
+      setPhase("error");
+    }
+  }
+
+  async function loadManifestFile(file: File | null) {
+    if (!file) {
+      return;
+    }
+    setManifestFileName(file.name);
+    setImportManifest(await file.text());
+  }
+
+  async function connectRunStream(runId: string) {
+    const streamToken = await api.getRunEventsToken(runId);
+    const socket = new WebSocket(webSocketUrl(`/v1/runs/${runId}/events?token=${encodeURIComponent(streamToken.token)}`));
     socketRef.current = socket;
 
     socket.onmessage = (event) => {
@@ -263,6 +373,52 @@ export function SecurityDashboard() {
     }
   }
 
+  async function approveTargetPr() {
+    if (!run || !report) {
+      return;
+    }
+    setPhase("creating-pr");
+    setError(null);
+    try {
+      const response = await api.approveRunPr(run.id, {
+        acceptedDiffIds: [report.promptDiff.id],
+        applyToAgent: false
+      });
+      setRunPr(response);
+      setApprovalMessage("Prompt remediation approved and PR requested.");
+      setPhase("idle");
+    } catch (prError) {
+      setError(prError instanceof Error ? prError.message : "Could not create target-agent PR.");
+      setPhase("error");
+    }
+  }
+
+  async function importGitHubAgent() {
+    setPhase("importing");
+    setError(null);
+    setImportWarnings([]);
+    try {
+      const imported = await api.importGitHubAgent(githubSource);
+      setLane("targets");
+      setSelectedTargetId("");
+      setRegisteredAgent(imported.agent);
+      setGithubImport(imported);
+      setSelectedScenarioIds(
+        imported.recommendedScenarioIds.length > 0 ? imported.recommendedScenarioIds : scenarios.map((scenario) => scenario.id)
+      );
+      setRun(null);
+      setEvents([]);
+      setReport(null);
+      setRunPr(null);
+      setApprovalMessage(null);
+      setImportWarnings(imported.warnings);
+      setPhase("idle");
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : "Could not import GitHub agent.");
+      setPhase("error");
+    }
+  }
+
   function toggleTool(tool: string) {
     setAllowedTools((current) => {
       if (current.includes(tool)) {
@@ -280,6 +436,14 @@ export function SecurityDashboard() {
     setEvents([]);
     setReport(null);
     setApprovalMessage(null);
+    setRunPr(null);
+    setGithubImport(null);
+    setImportWarnings([]);
+  }
+
+  function selectModel(model: ModelConfig) {
+    setSelectedModelId(model.modelId);
+    setAllowCloudAnalysis(false);
   }
 
   function toggleScenario(scenarioId: string) {
@@ -289,6 +453,25 @@ export function SecurityDashboard() {
       }
       return [...current, scenarioId];
     });
+  }
+
+  if (session && !session.authenticated) {
+    return (
+      <main className="login-shell">
+        <section className="login-panel">
+          <div className="brand-mark">
+            <ShieldCheck size={24} />
+          </div>
+          <span className="eyebrow">DevBox production pilot</span>
+          <h1>Admin login required</h1>
+          <p>Use the allowlisted GitHub account before importing repositories, running assessments, or approving PRs.</p>
+          <a className="primary-button login-button" href={session.loginUrl}>
+            <GitBranch size={18} />
+            Continue with GitHub
+          </a>
+        </section>
+      </main>
+    );
   }
 
   return (
@@ -314,6 +497,12 @@ export function SecurityDashboard() {
             <GitPullRequestArrow size={17} />
             <span>{lane === "diff" ? "GitHub PR" : "Fix approval"}</span>
           </a>
+          {lane === "targets" ? (
+            <a className="nav-item" href="#import-agent">
+              <Upload size={17} />
+              <span>Import agent</span>
+            </a>
+          ) : null}
         </nav>
         <div className="sidebar-card">
           <div className="sidebar-status">
@@ -345,7 +534,14 @@ export function SecurityDashboard() {
             className="primary-button"
             type="button"
             onClick={lane === "diff" ? generateDiff : runTargetAssessment}
-            disabled={phase === "generating" || phase === "registering" || phase === "running" || phase === "loading"}
+            disabled={
+              phase === "generating" ||
+              phase === "importing" ||
+              phase === "registering" ||
+              phase === "running" ||
+              phase === "loading" ||
+              (lane === "targets" && missingCloudApproval)
+            }
           >
             {phase === "generating" || phase === "registering" || phase === "running" ? (
               <RefreshCw className="spin" size={18} />
@@ -368,7 +564,15 @@ export function SecurityDashboard() {
             </>
           ) : (
             <>
-              <StatCard label="Target" value={selectedTarget?.name ?? "None"} detail={selectedTarget?.category ?? "template"} />
+              <StatCard
+                label="Target"
+                value={selectedTarget?.name ?? registeredAgent?.name ?? "None"}
+                detail={
+                  selectedTarget?.category ??
+                  githubImport?.repository.fullName ??
+                  (registeredAgent ? registeredAgent.promptPath ?? "imported project" : "template")
+                }
+              />
               <StatCard label="Model" value={selectedModel?.displayName ?? "None"} detail={selectedModel?.provider ?? "provider"} />
               <StatCard label="Run" value={run?.status ?? "Not started"} detail={run?.id ?? "local mock runtime"} />
               <StatCard label="Findings" value={report ? String(report.findings.length) : "Pending"} detail={`${selectedScenarioIds.length} scenarios`} />
@@ -502,6 +706,104 @@ export function SecurityDashboard() {
           </div>
         </section>
 
+        <section className="panel import-panel" id="import-agent">
+          <PanelHeader icon={<GitBranch size={18} />} title="GitHub import" value={githubImport ? "selected" : "live"} />
+          <div className="github-import-grid">
+            <label className="field">
+              <span>Owner</span>
+              <input value={githubSource.owner} onChange={(event) => setGithubSource((current) => ({ ...current, owner: event.target.value }))} />
+            </label>
+            <label className="field">
+              <span>Repository</span>
+              <input value={githubSource.repo} onChange={(event) => setGithubSource((current) => ({ ...current, repo: event.target.value }))} />
+            </label>
+            <label className="field">
+              <span>Ref</span>
+              <input value={githubSource.ref ?? ""} onChange={(event) => setGithubSource((current) => ({ ...current, ref: event.target.value }))} />
+            </label>
+            <label className="field">
+              <span>Prompt path</span>
+              <input
+                value={githubSource.promptPath}
+                onChange={(event) => setGithubSource((current) => ({ ...current, promptPath: event.target.value }))}
+              />
+            </label>
+            <label className="field">
+              <span>Manifest path</span>
+              <input
+                value={githubSource.manifestPath ?? ""}
+                onChange={(event) => setGithubSource((current) => ({ ...current, manifestPath: event.target.value || null }))}
+              />
+            </label>
+            <label className="field">
+              <span>Installation ID</span>
+              <input
+                value={githubSource.installationId ?? ""}
+                onChange={(event) =>
+                  setGithubSource((current) => ({
+                    ...current,
+                    installationId: event.target.value ? Number(event.target.value) : null
+                  }))
+                }
+              />
+            </label>
+          </div>
+          <button className="secondary-button" type="button" onClick={importGitHubAgent} disabled={phase === "importing"}>
+            {phase === "importing" ? <RefreshCw className="spin" size={17} /> : <GitBranch size={17} />}
+            {phase === "importing" ? "Importing" : "Import from GitHub"}
+          </button>
+          {githubImport ? (
+            <div className="import-status">
+              <strong>{githubImport.repository.fullName}</strong>
+              <span>
+                {githubImport.source.promptPath} / {githubImport.commitSha ?? "latest ref"}
+              </span>
+            </div>
+          ) : null}
+        </section>
+
+        <section className="panel import-panel">
+          <PanelHeader icon={<Upload size={18} />} title="Local manifest import" value={registeredAgent && !selectedTarget ? "selected" : "ready"} />
+          <label className="field">
+            <span>Manifest JSON</span>
+            <textarea className="manifest-input" value={importManifest} onChange={(event) => setImportManifest(event.target.value)} />
+          </label>
+          <div className="file-grid">
+            <label className="file-field">
+              <span>Manifest file</span>
+              <input type="file" accept="application/json,.json" onChange={(event) => void loadManifestFile(event.target.files?.[0] ?? null)} />
+            </label>
+            <label className="file-field">
+              <span>Prompt file</span>
+              <input
+                type="file"
+                accept=".md,.txt,text/markdown,text/plain"
+                onChange={(event) => setPromptFile(event.target.files?.[0] ?? null)}
+              />
+            </label>
+          </div>
+          <button className="secondary-button" type="button" onClick={importAgentProject} disabled={phase === "importing"}>
+            {phase === "importing" ? <RefreshCw className="spin" size={17} /> : <Upload size={17} />}
+            {phase === "importing" ? "Importing" : "Import agent"}
+          </button>
+          {registeredAgent && !selectedTarget ? (
+            <div className="import-status">
+              <strong>{registeredAgent.name}</strong>
+              <span>
+                {registeredAgent.promptPath ?? "inline prompt"} / {selectedScenarioIds.length} scenarios
+              </span>
+            </div>
+          ) : null}
+          {promptFile ? <p className="muted-note">Prompt file: {promptFile.name}</p> : null}
+          {importWarnings.length > 0 ? (
+            <ul className="warning-list">
+              {importWarnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+
         <section className="panel">
           <PanelHeader icon={<Database size={18} />} title="Model" value={selectedModel?.provider ?? "provider"} />
           <div className="model-list">
@@ -511,7 +813,7 @@ export function SecurityDashboard() {
                 className={selectedModelId === model.modelId ? "model-card selected" : "model-card"}
                 type="button"
                 disabled={!model.enabled}
-                onClick={() => setSelectedModelId(model.modelId)}
+                onClick={() => selectModel(model)}
               >
                 <div>
                   <strong>
@@ -525,6 +827,22 @@ export function SecurityDashboard() {
               </button>
             ))}
           </div>
+          {requiresCloudApproval ? (
+            <div className="switch-row cloud-approval-row">
+              <div>
+                <span>Approve cloud analysis</span>
+                <small>{selectedModel?.displayName ?? "Selected cloud model"} can process selected run data.</small>
+              </div>
+              <button
+                className={allowCloudAnalysis ? "toggle is-on" : "toggle"}
+                type="button"
+                aria-pressed={allowCloudAnalysis}
+                onClick={() => setAllowCloudAnalysis((current) => !current)}
+              >
+                <span />
+              </button>
+            </div>
+          ) : null}
         </section>
 
         <section className="panel">
@@ -605,6 +923,15 @@ export function SecurityDashboard() {
                 {phase === "approving" ? <RefreshCw className="spin" size={17} /> : <Wrench size={17} />}
                 {phase === "approving" ? "Approving" : "Approve prompt and policy fix"}
               </button>
+              <button className="secondary-button" type="button" onClick={approveTargetPr} disabled={phase === "creating-pr"}>
+                {phase === "creating-pr" ? <RefreshCw className="spin" size={17} /> : <GitPullRequestArrow size={17} />}
+                {phase === "creating-pr" ? "Creating PR" : "Approve prompt PR"}
+              </button>
+              {runPr?.prUrl ? (
+                <a className="pr-link" href={runPr.prUrl} target="_blank" rel="noreferrer">
+                  {runPr.prUrl}
+                </a>
+              ) : null}
               {approvalMessage ? <p className="success-line">{approvalMessage}</p> : null}
             </>
           ) : (

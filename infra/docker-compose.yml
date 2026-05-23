@@ -1,17 +1,62 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: devbox
+      POSTGRES_USER: devbox
+      POSTGRES_PASSWORD: devbox
+    ports:
+      - "5432:5432"
+    volumes:
+      - devbox-postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
   api:
     build:
       context: ../services/api
     ports:
       - "8000:8000"
     environment:
+      DEVBOX_ENV: ${DEVBOX_ENV:-development}
+      DEVBOX_API_SERVICE_TOKEN: ${DEVBOX_API_SERVICE_TOKEN:-}
       DEVBOX_ALLOWED_ORIGINS: http://localhost:3000
       DEVBOX_TARGET_AGENT_BASE_URL: http://target-agents:8010
+      DATABASE_URL: postgresql+psycopg://devbox:devbox@postgres:5432/devbox
+      REDIS_URL: redis://redis:6379/0
+      DEVBOX_CELERY_EAGER: "false"
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       LOCAL_MODEL_BASE_URL: ${LOCAL_MODEL_BASE_URL:-}
+      DEVBOX_GEMINI_REVIEW_MODEL: ${DEVBOX_GEMINI_REVIEW_MODEL:-gemini-2.5-flash}
     depends_on:
+      - postgres
+      - redis
+      - target-agents
+
+  worker:
+    build:
+      context: ../services/api
+    command: ["celery", "-A", "app.task_queue.celery_app", "worker", "--loglevel=INFO", "--pool=solo"]
+    environment:
+      DEVBOX_ENV: ${DEVBOX_ENV:-development}
+      DEVBOX_API_SERVICE_TOKEN: ${DEVBOX_API_SERVICE_TOKEN:-}
+      DEVBOX_TARGET_AGENT_BASE_URL: http://target-agents:8010
+      DATABASE_URL: postgresql+psycopg://devbox:devbox@postgres:5432/devbox
+      REDIS_URL: redis://redis:6379/0
+      DEVBOX_CELERY_EAGER: "false"
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LOCAL_MODEL_BASE_URL: ${LOCAL_MODEL_BASE_URL:-}
+      DEVBOX_GEMINI_REVIEW_MODEL: ${DEVBOX_GEMINI_REVIEW_MODEL:-gemini-2.5-flash}
+    depends_on:
+      - postgres
+      - redis
       - target-agents
 
   target-agents:
@@ -26,3 +71,6 @@ services:
       dockerfile: infra/sandbox/Dockerfile
     command: ["--self-test"]
     network_mode: "none"
+
+volumes:
+  devbox-postgres:

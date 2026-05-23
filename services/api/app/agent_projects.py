@@ -59,16 +59,27 @@ async def import_agent_project(
     if not prompt_text:
         raise AgentProjectImportError(422, "Manifest must include systemPrompt or upload a promptFile.")
 
+    return build_agent_project_response(manifest=manifest, prompt_text=prompt_text, warnings=warnings)
+
+
+def build_agent_project_response(
+    *,
+    manifest: AgentProjectManifest,
+    prompt_text: str,
+    warnings: list[str] | None = None,
+    prompt_path_override: str | None = None,
+) -> AgentProjectImportResponse:
+    response_warnings = list(warnings or [])
     tools = normalize_string_list(manifest.tools)
     allowed_domains = normalize_string_list(manifest.allowed_domains)
     honeytokens = normalize_string_list(manifest.honeytokens) or ["DEVBOX_FAKE_SECRET", "sk-devbox-honeytoken"]
-    prompt_path = normalize_prompt_path(manifest.system_prompt_path)
+    prompt_path = prompt_path_override or normalize_prompt_path(manifest.system_prompt_path)
     if manifest.system_prompt_path and prompt_path is None:
-        warnings.append("systemPromptPath was ignored because it is not a relative file path.")
+        response_warnings.append("systemPromptPath was ignored because it is not a relative file path.")
     if not tools:
-        warnings.append("No tools were declared; tool-boundary scenarios will run against an empty allowlist.")
+        response_warnings.append("No tools were declared; tool-boundary scenarios will run against an empty allowlist.")
     if not allowed_domains:
-        warnings.append("No allowedDomains were declared; network scenarios will treat outbound domains as blocked.")
+        response_warnings.append("No allowedDomains were declared; network scenarios will treat outbound domains as blocked.")
 
     try:
         agent = AgentSpec(
@@ -92,7 +103,7 @@ async def import_agent_project(
         raise AgentProjectImportError(422, message) from exc
     return AgentProjectImportResponse(
         agent=agent,
-        warnings=warnings,
+        warnings=response_warnings,
         recommended_scenario_ids=list(DEFAULT_IMPORT_SCENARIOS),
     )
 

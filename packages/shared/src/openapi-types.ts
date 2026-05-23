@@ -72,6 +72,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Repositories */
+        get: operations["list_repositories_v1_repositories_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/github/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Github Agent */
+        post: operations["import_github_agent_v1_github_imports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/target-agents/{target_agent_id}/register": {
         parameters: {
             query?: never;
@@ -100,6 +134,23 @@ export interface paths {
         put?: never;
         /** Create Agent */
         post: operations["create_agent_v1_agents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent-projects/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Agent Project Endpoint */
+        post: operations["import_agent_project_endpoint_v1_agent_projects_import_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -157,6 +208,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/runs/{run_id}/events-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run Events Token */
+        get: operations["get_run_events_token_v1_runs__run_id__events_token_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/runs/{run_id}/approve-fix": {
         parameters: {
             query?: never;
@@ -168,6 +236,40 @@ export interface paths {
         put?: never;
         /** Approve Fix */
         post: operations["approve_fix_v1_runs__run_id__approve_fix_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/request-pr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request Run Pr */
+        post: operations["request_run_pr_v1_runs__run_id__request_pr_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/approve-pr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Run Pr */
+        post: operations["approve_run_pr_v1_runs__run_id__approve_pr_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -229,6 +331,33 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AgentImportRecord */
+        AgentImportRecord: {
+            /** Id */
+            id: string;
+            source: components["schemas"]["GitHubImportSource"];
+            repository: components["schemas"]["RepositoryRecord"];
+            agent: components["schemas"]["AgentSpec"];
+            /** Warnings */
+            warnings?: string[];
+            /** Recommendedscenarioids */
+            recommendedScenarioIds?: string[];
+            /** Commitsha */
+            commitSha?: string | null;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt?: string;
+        };
+        /** AgentProjectImportResponse */
+        AgentProjectImportResponse: {
+            agent: components["schemas"]["AgentSpec"];
+            /** Warnings */
+            warnings?: string[];
+            /** Recommendedscenarioids */
+            recommendedScenarioIds?: string[];
+        };
         /** AgentSpec */
         AgentSpec: {
             /** Id */
@@ -237,6 +366,8 @@ export interface components {
             name: string;
             /** Systemprompt */
             systemPrompt: string;
+            /** Promptpath */
+            promptPath?: string | null;
             /** Tools */
             tools?: string[];
             sandboxPolicy?: components["schemas"]["SandboxPolicy"];
@@ -265,6 +396,37 @@ export interface components {
             /** Message */
             message: string;
         };
+        /** Body_import_agent_project_endpoint_v1_agent_projects_import_post */
+        Body_import_agent_project_endpoint_v1_agent_projects_import_post: {
+            /**
+             * Manifest
+             * Format: binary
+             */
+            manifest: string;
+            /** Promptfile */
+            promptFile?: string | null;
+        };
+        /**
+         * ComplianceFramework
+         * @enum {string}
+         */
+        ComplianceFramework: "nist_ai_rmf" | "iso_iec_42001" | "owasp_llm_top_10";
+        /** ComplianceMapping */
+        ComplianceMapping: {
+            framework: components["schemas"]["ComplianceFramework"];
+            /** Control */
+            control: string;
+            /** Findingid */
+            findingId?: string | null;
+            status: components["schemas"]["ComplianceStatus"];
+            /** Evidence */
+            evidence: string;
+        };
+        /**
+         * ComplianceStatus
+         * @enum {string}
+         */
+        ComplianceStatus: "covered" | "gap" | "not_applicable";
         /**
          * CostTier
          * @enum {string}
@@ -321,6 +483,18 @@ export interface components {
          * @enum {string}
          */
         DiffStatus: "ready" | "pr_requested" | "pr_created" | "failed";
+        /** EventsTokenResponse */
+        EventsTokenResponse: {
+            /** Runid */
+            runId: string;
+            /** Token */
+            token: string;
+            /**
+             * Expiresat
+             * Format: date-time
+             */
+            expiresAt: string;
+        };
         /** Finding */
         Finding: {
             /** Id */
@@ -334,6 +508,27 @@ export interface components {
             evidence: string;
             /** Recommendation */
             recommendation: string;
+        };
+        /** GitHubImportSource */
+        GitHubImportSource: {
+            /** Owner */
+            owner: string;
+            /** Repo */
+            repo: string;
+            /** Ref */
+            ref?: string | null;
+            /**
+             * Promptpath
+             * @default .agents/AGENTS.md
+             */
+            promptPath: string;
+            /**
+             * Manifestpath
+             * @default .devbox/agent.json
+             */
+            manifestPath: string | null;
+            /** Installationid */
+            installationId?: number | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -407,6 +602,44 @@ export interface components {
             toolPolicyDiff: components["schemas"]["PolicyDiff"];
             /** Regressiontests */
             regressionTests: string[];
+            /** Riskroutes */
+            riskRoutes?: components["schemas"]["RiskRoute"][];
+            /** Scannerresults */
+            scannerResults?: components["schemas"]["ScannerResult"][];
+            /** Compliancemappings */
+            complianceMappings?: components["schemas"]["ComplianceMapping"][];
+            /** Cactusroute */
+            cactusRoute?: string | null;
+            /** Cactusreason */
+            cactusReason?: string | null;
+            /** Cactuslocalaudit */
+            cactusLocalAudit?: string | null;
+            /** Cactuscompliance */
+            cactusCompliance?: string | null;
+        };
+        /** RepositoryRecord */
+        RepositoryRecord: {
+            /** Id */
+            id: string;
+            /** Installationid */
+            installationId?: number | null;
+            /** Owner */
+            owner: string;
+            /** Repo */
+            repo: string;
+            /** Fullname */
+            fullName: string;
+            /** Defaultbranch */
+            defaultBranch?: string | null;
+            /** Selectedref */
+            selectedRef?: string | null;
+            /** Htmlurl */
+            htmlUrl?: string | null;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt?: string;
         };
         /** RequestPrResponse */
         RequestPrResponse: {
@@ -440,10 +673,22 @@ export interface components {
             commitSha?: string | null;
         };
         /**
+         * RiskLane
+         * @enum {string}
+         */
+        RiskLane: "local" | "cloud" | "scanner" | "sandbox";
+        /**
          * RiskProfile
          * @enum {string}
          */
         RiskProfile: "cloud" | "local";
+        /** RiskRoute */
+        RiskRoute: {
+            lane: components["schemas"]["RiskLane"];
+            severity: components["schemas"]["Severity"];
+            /** Rationale */
+            rationale: string;
+        };
         /** Run */
         Run: {
             /** Id */
@@ -454,6 +699,11 @@ export interface components {
             modelId: string;
             /** Scenarioids */
             scenarioIds: string[];
+            /**
+             * Allowcloudanalysis
+             * @default false
+             */
+            allowCloudAnalysis: boolean;
             /** @default queued */
             status: components["schemas"]["RunStatus"];
             /**
@@ -474,6 +724,11 @@ export interface components {
             modelId: string;
             /** Scenarioids */
             scenarioIds: string[];
+            /**
+             * Allowcloudanalysis
+             * @default false
+             */
+            allowCloudAnalysis: boolean;
         };
         /**
          * RunStatus
@@ -500,6 +755,24 @@ export interface components {
             /** Honeytokens */
             honeytokens?: string[];
         };
+        /** ScannerResult */
+        ScannerResult: {
+            /** Id */
+            id: string;
+            /** Scanner */
+            scanner: string;
+            status: components["schemas"]["ScannerStatus"];
+            severity?: components["schemas"]["Severity"] | null;
+            /** Summary */
+            summary: string;
+            /** Evidence */
+            evidence?: string[];
+        };
+        /**
+         * ScannerStatus
+         * @enum {string}
+         */
+        ScannerStatus: "passed" | "flagged" | "skipped";
         /** Scenario */
         Scenario: {
             /** Id */
@@ -671,6 +944,59 @@ export interface operations {
             };
         };
     };
+    list_repositories_v1_repositories_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryRecord"][];
+                };
+            };
+        };
+    };
+    import_github_agent_v1_github_imports_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GitHubImportSource"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentImportRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     register_target_agent_v1_target_agents__target_agent_id__register_post: {
         parameters: {
             query?: never;
@@ -722,6 +1048,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentSpec"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_agent_project_endpoint_v1_agent_projects_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_agent_project_endpoint_v1_agent_projects_import_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProjectImportResponse"];
                 };
             };
             /** @description Validation Error */
@@ -830,6 +1189,37 @@ export interface operations {
             };
         };
     };
+    get_run_events_token_v1_runs__run_id__events_token_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventsTokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     approve_fix_v1_runs__run_id__approve_fix_post: {
         parameters: {
             query?: never;
@@ -852,6 +1242,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApproveFixResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    request_run_pr_v1_runs__run_id__request_pr_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestPrResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_run_pr_v1_runs__run_id__approve_pr_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ApproveFixRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestPrResponse"];
                 };
             };
             /** @description Validation Error */

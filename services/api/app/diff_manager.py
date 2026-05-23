@@ -13,6 +13,7 @@ import httpx
 
 from .contracts import DiffCreate, DiffResult, DiffStatus, RequestPrResponse
 from .managed_agents import ManagedAgentClient
+from .persistence import PersistentStore
 
 
 DEFAULT_TARGET_PATH = ".agents/AGENTS.md"
@@ -34,8 +35,9 @@ class GitHubWebhookResult:
 
 
 class DiffManager:
-    def __init__(self, managed_agents: ManagedAgentClient) -> None:
+    def __init__(self, managed_agents: ManagedAgentClient, store: PersistentStore | None = None) -> None:
         self.managed_agents = managed_agents
+        self.store = store or PersistentStore()
         self.diffs: dict[str, DiffResult] = {}
 
     async def create_diff(self, payload: DiffCreate) -> DiffResult:
@@ -59,13 +61,15 @@ class DiffManager:
             target_path=target_path,
         )
         self.diffs[diff.id] = diff
+        self.store.save_diff(diff)
+        self.store.audit("diff.created", target_id=diff.id, detail={"provider_mode": diff.provider_mode})
         return diff
 
     def get_diff(self, diff_id: str) -> DiffResult | None:
-        return self.diffs.get(diff_id)
+        return self.store.get_diff(diff_id) or self.diffs.get(diff_id)
 
     async def request_pr(self, diff_id: str) -> RequestPrResponse:
-        diff = self.diffs.get(diff_id)
+        diff = self.get_diff(diff_id)
         if diff is None:
             raise DiffManagerError(404, "Diff not found.")
         if diff.status not in {DiffStatus.READY, DiffStatus.PR_REQUESTED, DiffStatus.PR_CREATED}:
@@ -80,9 +84,12 @@ class DiffManager:
 
         requested = diff.model_copy(update={"status": DiffStatus.PR_REQUESTED})
         self.diffs[diff_id] = requested
+        self.store.save_diff(requested)
         result = await send_signed_github_webhook(requested, webhook_url, webhook_secret)
         updated = requested.model_copy(update={"status": DiffStatus.PR_CREATED, "pr_url": result.pr_url})
         self.diffs[diff_id] = updated
+        self.store.save_diff(updated)
+        self.store.audit("diff.pr_created", target_id=diff_id, detail={"branch": result.branch, "commit_sha": result.commit_sha})
         return RequestPrResponse(**updated.model_dump(), branch=result.branch, commit_sha=result.commit_sha)
 
     async def tool_routing_smoke(self, payload: DiffCreate) -> DiffResult:
@@ -91,7 +98,7 @@ class DiffManager:
             use_managed_agent=payload.use_managed_agent,
         )
         prompt_after = output.prompt_after or "Tool routing smoke check completed."
-        return DiffResult(
+        result = DiffResult(
             id=f"smoke_{uuid.uuid4().hex[:10]}",
             provider_mode=output.provider_mode,
             status=DiffStatus.READY,
@@ -103,6 +110,9 @@ class DiffManager:
             tool_route=output.tool_route,
             target_path=payload.target_path or DEFAULT_TARGET_PATH,
         )
+        self.store.save_diff(result)
+        self.store.audit("managed_agent.tool_routing_smoke", target_id=result.id)
+        return result
 
 
 def unified_prompt_diff(prompt_before: str, prompt_after: str, target_path: str) -> str:

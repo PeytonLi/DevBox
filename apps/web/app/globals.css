@@ -69,6 +69,7 @@ textarea,
 .stat-card small,
 .panel-header > span,
 .field span,
+.file-field span,
 .policy-list dt,
 .tooltip-content {
   font-family: var(--font-mono), "SFMono-Regular", Consolas, monospace;
@@ -78,6 +79,43 @@ textarea,
   display: grid;
   min-height: 100vh;
   grid-template-columns: 280px minmax(0, 1fr);
+}
+
+.login-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-panel {
+  width: min(100%, 460px);
+  border: 1px solid rgba(212, 221, 216, 0.96);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 24px;
+  box-shadow: var(--shadow);
+}
+
+.login-panel .brand-mark {
+  margin-bottom: 18px;
+}
+
+.login-panel h1 {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1.05;
+}
+
+.login-panel p {
+  margin: 12px 0 18px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.login-button {
+  text-decoration: none;
 }
 
 .sidebar {
@@ -542,6 +580,10 @@ textarea,
   line-height: 1.55;
 }
 
+.manifest-input {
+  min-height: 220px;
+}
+
 .prompt-panel .field textarea {
   min-height: 300px;
 }
@@ -560,6 +602,102 @@ textarea,
   gap: 14px;
   border-top: 1px solid var(--line);
   padding-top: 12px;
+}
+
+.cloud-approval-row {
+  align-items: flex-start;
+  margin-top: 12px;
+}
+
+.cloud-approval-row div {
+  min-width: 0;
+}
+
+.cloud-approval-row small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.import-panel {
+  grid-column: span 2;
+}
+
+.file-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.github-import-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.file-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.file-field span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.file-field input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fbfdfc;
+  color: var(--ink);
+  padding: 9px;
+  font-size: 13px;
+}
+
+.import-status {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  border: 1px solid #abd9ce;
+  border-radius: var(--radius);
+  background: var(--teal-soft);
+  padding: 10px;
+}
+
+.import-status strong,
+.import-status span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.import-status strong {
+  font-size: 13px;
+}
+
+.import-status span {
+  color: var(--teal-strong);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.warning-list {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: #78500d;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 .switch-root {
@@ -1179,7 +1317,8 @@ textarea,
   .trace-panel,
   .report-panel,
   .sandbox-panel,
-  .output-panel {
+  .output-panel,
+  .import-panel {
     grid-column: span 2;
   }
 }
@@ -1227,14 +1366,17 @@ textarea,
   .grid-layout,
   .diff-layout,
   .metadata-grid,
-  .policy-list {
+  .policy-list,
+  .file-grid,
+  .github-import-grid {
     grid-template-columns: 1fr;
   }
 
   .trace-panel,
   .report-panel,
   .sandbox-panel,
-  .output-panel {
+  .output-panel,
+  .import-panel {
     grid-column: span 1;
   }
 }

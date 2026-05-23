@@ -14,6 +14,10 @@ export type RunEventActor = "system" | "attacker" | "target_agent" | "sandbox" |
 export type PolicyDecision = "allowed" | "blocked" | "flagged";
 export type DiffProviderMode = "managed_agent" | "simulator";
 export type DiffStatus = "ready" | "pr_requested" | "pr_created" | "failed";
+export type RiskLane = "local" | "cloud" | "scanner" | "sandbox";
+export type ScannerStatus = "passed" | "flagged" | "skipped";
+export type ComplianceFramework = "nist_ai_rmf" | "iso_iec_42001" | "owasp_llm_top_10";
+export type ComplianceStatus = "covered" | "gap" | "not_applicable";
 
 export interface SandboxPolicy {
   allowedTools: string[];
@@ -33,6 +37,7 @@ export interface AgentSpec {
   id?: string;
   name: string;
   systemPrompt: string;
+  promptPath?: string | null;
   tools: string[];
   sandboxPolicy: SandboxPolicy;
   managed: boolean;
@@ -68,6 +73,7 @@ export interface Run {
   agentId: string;
   modelId: string;
   scenarioIds: string[];
+  allowCloudAnalysis: boolean;
   status: RunStatus;
   createdAt: string;
   completedAt?: string | null;
@@ -78,6 +84,7 @@ export interface RunCreate {
   agentId: string;
   modelId: string;
   scenarioIds: string[];
+  allowCloudAnalysis?: boolean;
 }
 
 export interface RunEvent {
@@ -108,6 +115,29 @@ export interface PolicyDiff {
   rationale: string;
 }
 
+export interface RiskRoute {
+  lane: RiskLane;
+  severity: Severity;
+  rationale: string;
+}
+
+export interface ScannerResult {
+  id: string;
+  scanner: string;
+  status: ScannerStatus;
+  severity?: Severity | null;
+  summary: string;
+  evidence: string[];
+}
+
+export interface ComplianceMapping {
+  framework: ComplianceFramework;
+  control: string;
+  findingId?: string | null;
+  status: ComplianceStatus;
+  evidence: string;
+}
+
 export interface Report {
   runId: string;
   score: number;
@@ -116,6 +146,9 @@ export interface Report {
   promptDiff: PolicyDiff;
   toolPolicyDiff: PolicyDiff;
   regressionTests: string[];
+  riskRoutes: RiskRoute[];
+  scannerResults: ScannerResult[];
+  complianceMappings: ComplianceMapping[];
   cactusRoute?: string;
   cactusReason?: string;
   cactusLocalAudit?: string;
@@ -169,6 +202,86 @@ export interface TargetAgentTemplate {
   recommendedScenarioIds: string[];
   agentSpec: AgentSpec;
   runtime: TargetAgentRuntime;
+}
+
+export interface AgentProjectImportResponse {
+  agent: AgentSpec;
+  warnings: string[];
+  recommendedScenarioIds: string[];
+}
+
+export interface GitHubImportSource {
+  owner: string;
+  repo: string;
+  ref?: string | null;
+  promptPath: string;
+  manifestPath?: string | null;
+  installationId?: number | null;
+}
+
+export interface RepositoryRecord {
+  id: string;
+  installationId?: number | null;
+  owner: string;
+  repo: string;
+  fullName: string;
+  defaultBranch?: string | null;
+  selectedRef?: string | null;
+  htmlUrl?: string | null;
+  createdAt: string;
+}
+
+export interface AgentImportRecord {
+  id: string;
+  source: GitHubImportSource;
+  repository: RepositoryRecord;
+  agent: AgentSpec;
+  warnings: string[];
+  recommendedScenarioIds: string[];
+  commitSha?: string | null;
+  createdAt: string;
+}
+
+export interface RunRecord extends Run {}
+
+export interface RunEventRecord extends RunEvent {
+  runId: string;
+}
+
+export interface ProviderCallRecord {
+  id: string;
+  provider: ProviderKind;
+  modelId: string;
+  status: "simulated" | "completed" | "failed";
+  runId?: string | null;
+  requestSummary: string;
+  responseSummary?: string | null;
+  error?: string | null;
+  redacted: boolean;
+  createdAt: string;
+}
+
+export interface AuditLogRecord {
+  id: string;
+  action: string;
+  actor: string;
+  targetId?: string | null;
+  detail: Record<string, string | number | boolean | null>;
+  createdAt: string;
+}
+
+export interface EventsTokenResponse {
+  runId: string;
+  token: string;
+  expiresAt: string;
+}
+
+export interface AdminSessionResponse {
+  authenticated: boolean;
+  authDisabled: boolean;
+  email?: string | null;
+  login?: string | null;
+  loginUrl: string;
 }
 
 export interface DiffCreate {

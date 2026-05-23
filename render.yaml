@@ -1,0 +1,88 @@
+services:
+  - type: web
+    name: devbox-api
+    runtime: docker
+    plan: starter
+    dockerContext: ./services/api
+    dockerfilePath: ./services/api/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: DEVBOX_ENV
+        value: production
+      - key: DEVBOX_CELERY_EAGER
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: devbox-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: devbox-redis
+          property: connectionString
+      - key: DEVBOX_API_SERVICE_TOKEN
+        sync: false
+      - key: DEVBOX_EVENTS_TOKEN_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GITHUB_APP_ID
+        sync: false
+      - key: GITHUB_APP_PRIVATE_KEY
+        sync: false
+      - key: GITHUB_APP_INSTALLATION_ID
+        sync: false
+      - key: DEVBOX_PR_WEBHOOK_SECRET
+        sync: false
+      - key: DEVBOX_GITHUB_WEBHOOK_URL
+        sync: false
+      - key: DEVBOX_GEMINI_REVIEW_MODEL
+        value: gemini-2.5-flash
+
+  - type: worker
+    name: devbox-worker
+    runtime: docker
+    plan: starter
+    dockerContext: ./services/api
+    dockerfilePath: ./services/api/Dockerfile
+    dockerCommand: celery -A app.task_queue.celery_app worker --loglevel=INFO
+    envVars:
+      - key: DEVBOX_ENV
+        value: production
+      - key: DEVBOX_CELERY_EAGER
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: devbox-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: devbox-redis
+          property: connectionString
+      - key: DEVBOX_API_SERVICE_TOKEN
+        sync: false
+      - key: DEVBOX_EVENTS_TOKEN_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GITHUB_APP_ID
+        sync: false
+      - key: GITHUB_APP_PRIVATE_KEY
+        sync: false
+      - key: GITHUB_APP_INSTALLATION_ID
+        sync: false
+      - key: DEVBOX_GEMINI_REVIEW_MODEL
+        value: gemini-2.5-flash
+
+  - type: keyvalue
+    name: devbox-redis
+    plan: starter
+    ipAllowList: []
+    maxmemoryPolicy: noeviction
+
+databases:
+  - name: devbox-postgres
+    plan: starter
+    databaseName: devbox
+    user: devbox

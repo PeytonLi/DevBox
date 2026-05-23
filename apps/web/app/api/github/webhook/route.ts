@@ -74,7 +74,15 @@ async function createPullRequest(payload: DiffWebhookPayload) {
   });
 
   const { data: base } = await octokit.rest.repos.getBranch({ owner, repo, branch: baseBranch });
-  await createOrResetBranch(octokit, owner, repo, branch, base.commit.sha);
+  const existingPr = await existingOpenPullRequest(octokit, owner, repo, branch);
+  if (existingPr) {
+    return {
+      prUrl: existingPr.html_url,
+      branch,
+      commitSha: existingPr.head.sha
+    };
+  }
+  await createBranchIfMissing(octokit, owner, repo, branch, base.commit.sha);
 
   const sha = await existingFileSha(octokit, owner, repo, targetPath, branch);
   const { data: file } = await octokit.rest.repos.createOrUpdateFileContents({
@@ -151,7 +159,7 @@ function toPem(base64Body: string, label: "PRIVATE KEY" | "RSA PRIVATE KEY") {
   return [`-----BEGIN ${label}-----`, ...lines, `-----END ${label}-----`].join("\n");
 }
 
-async function createOrResetBranch(octokit: Octokit, owner: string, repo: string, branch: string, sha: string) {
+async function createBranchIfMissing(octokit: Octokit, owner: string, repo: string, branch: string, sha: string) {
   try {
     await octokit.rest.git.createRef({
       owner,
@@ -161,17 +169,21 @@ async function createOrResetBranch(octokit: Octokit, owner: string, repo: string
     });
   } catch (error) {
     if (isGithubStatus(error, 422)) {
-      await octokit.rest.git.updateRef({
-        owner,
-        repo,
-        ref: `heads/${branch}`,
-        sha,
-        force: false
-      });
       return;
     }
     throw error;
   }
+}
+
+async function existingOpenPullRequest(octokit: Octokit, owner: string, repo: string, branch: string) {
+  const { data } = await octokit.rest.pulls.list({
+    owner,
+    repo,
+    head: `${owner}:${branch}`,
+    state: "open",
+    per_page: 1
+  });
+  return data[0];
 }
 
 async function existingFileSha(
@@ -260,8 +272,6 @@ function prBody(payload: DiffWebhookPayload, targetPath: string) {
     `Target path: \`${targetPath}\``,
     `Diff id: \`${payload.diffId}\``,
     "",
-    "```diff",
-    payload.unifiedDiff.trim(),
-    "```"
+    "Approved prompt content is committed in the branch file update and intentionally omitted from this PR body."
   ].join("\n");
 }

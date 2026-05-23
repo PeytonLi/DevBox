@@ -314,6 +314,74 @@ class AgentProjectImportResponse(ApiModel):
     recommended_scenario_ids: list[str] = Field(default_factory=list)
 
 
+class GitHubImportSource(ApiModel):
+    owner: str = Field(min_length=1, max_length=120)
+    repo: str = Field(min_length=1, max_length=120)
+    ref: str | None = Field(default=None, max_length=200)
+    prompt_path: str = Field(default=".agents/AGENTS.md", min_length=1, max_length=500)
+    manifest_path: str | None = Field(default=".devbox/agent.json", max_length=500)
+    installation_id: int | None = None
+
+
+class RepositoryRecord(ApiModel):
+    id: str
+    installation_id: int | None = None
+    owner: str
+    repo: str
+    full_name: str
+    default_branch: str | None = None
+    selected_ref: str | None = None
+    html_url: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class AgentImportRecord(ApiModel):
+    id: str
+    source: GitHubImportSource
+    repository: RepositoryRecord
+    agent: AgentSpec
+    warnings: list[str] = Field(default_factory=list)
+    recommended_scenario_ids: list[str] = Field(default_factory=list)
+    commit_sha: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class RunRecord(Run):
+    pass
+
+
+class RunEventRecord(RunEvent):
+    run_id: str
+
+
+class ProviderCallRecord(ApiModel):
+    id: str
+    provider: ProviderKind
+    model_id: str
+    status: Literal["simulated", "completed", "failed"]
+    run_id: str | None = None
+    request_summary: str
+    response_summary: str | None = None
+    error: str | None = None
+    redacted: bool = True
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class AuditLogRecord(ApiModel):
+    id: str
+    action: str
+    actor: str
+    target_id: str | None = None
+    detail: dict[str, str | int | bool | None] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class EventsTokenResponse(ApiModel):
+    run_id: str
+    token: str
+    expires_at: datetime
+
+
 class DiffCreate(ApiModel):
     prompt: str = Field(min_length=20, max_length=12000)
     target_path: str | None = None
