@@ -48,6 +48,8 @@ This project is built for authorized testing only. The MVP does not intercept un
 
 Simulator mode works without credentials. For live Gemini Managed Agent routing, set `GEMINI_API_KEY` and keep `DEVBOX_GENAI_MODE=auto` or set `DEVBOX_GENAI_MODE=live`.
 
+Local development loads the repo-root `.env` for both the FastAPI service and the Next.js GitHub webhook route when started with `pnpm dev`. Restart `pnpm dev` after changing any PR or provider credential variables.
+
 For GitHub PR creation, configure:
 
 ```bash

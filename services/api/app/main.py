@@ -6,6 +6,7 @@ import os
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from .env import load_local_env
 from .contracts import (
     AgentSpec,
     ApproveFixRequest,
@@ -28,6 +29,9 @@ from .run_manager import RunManager, RunManagerError
 
 
 VERSION = "0.1.0"
+
+
+load_local_env()
 
 
 @asynccontextmanager

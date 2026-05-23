@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "concurrently -n web,api -c cyan,magenta \"pnpm dev:web\" \"pnpm dev:api\"",
-    "dev:web": "pnpm --filter @devbox/web dev",
+    "dev:web": "dotenv -e .env -- pnpm --filter @devbox/web dev",
     "dev:api": ".venv\\Scripts\\python -m uvicorn app.main:app --reload --app-dir services/api --port 8000",
     "build": "pnpm --filter @devbox/web build",
     "typecheck": "pnpm -r --if-present typecheck",
@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "concurrently": "9.2.1",
+    "dotenv-cli": "^11.0.0",
     "openapi-typescript": "7.10.1",
     "typescript": "5.9.3"
   }
