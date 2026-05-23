@@ -317,34 +317,68 @@ export function SecurityDashboard() {
     const streamToken = await api.getRunEventsToken(runId);
     const socket = new WebSocket(webSocketUrl(`/v1/runs/${runId}/events?token=${encodeURIComponent(streamToken.token)}`));
     socketRef.current = socket;
+    let streamFailed = false;
+    let fallbackStarted = false;
+
+    const recoverRun = () => {
+      if (socketRef.current !== socket || fallbackStarted) {
+        return;
+      }
+      fallbackStarted = true;
+      void fetchCompletedRun(runId, { pollUntilTerminal: streamFailed });
+    };
 
     socket.onmessage = (event) => {
-      const payload = JSON.parse(event.data) as RunEvent;
-      setEvents((current) => {
-        if (current.some((item) => item.sequence === payload.sequence)) {
-          return current;
-        }
-        return [...current, payload].sort((a, b) => a.sequence - b.sequence);
-      });
+      if (socketRef.current !== socket) {
+        return;
+      }
+      try {
+        const payload = JSON.parse(event.data) as RunEvent;
+        setEvents((current) => {
+          if (current.some((item) => item.sequence === payload.sequence)) {
+            return current;
+          }
+          return [...current, payload].sort((a, b) => a.sequence - b.sequence);
+        });
+      } catch {
+        streamFailed = true;
+        socket.close();
+      }
     };
 
     socket.onclose = () => {
-      fetchCompletedRun(runId);
+      recoverRun();
     };
 
     socket.onerror = () => {
-      setError("Run event stream failed. The report may still be available after refresh.");
-      setPhase("error");
+      streamFailed = true;
+      recoverRun();
+      socket.close();
     };
   }
 
-  async function fetchCompletedRun(runId: string) {
+  async function fetchCompletedRun(runId: string, options: { pollUntilTerminal?: boolean } = {}) {
     try {
       const latestRun = await api.getRun(runId);
       setRun(latestRun);
       if (latestRun.status === "completed") {
         const latestReport = await api.getReport(runId);
         setReport(latestReport);
+        setError(null);
+        setPhase("idle");
+        return;
+      }
+      if (latestRun.status === "failed") {
+        setError("Assessment failed. Review the live trace for the backend error.");
+        setPhase("error");
+        return;
+      }
+      if (options.pollUntilTerminal) {
+        setPhase("running");
+        window.setTimeout(() => {
+          void fetchCompletedRun(runId, options);
+        }, 1500);
+        return;
       }
       setPhase("idle");
     } catch (reportError) {
