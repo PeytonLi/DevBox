@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 from fastapi.testclient import TestClient
 
@@ -26,6 +28,34 @@ def managed_agent_payload(managed: bool = True) -> dict:
             "honeytokens": ["DEVBOX_FAKE_SECRET", "sk-devbox-honeytoken"],
         },
     }
+
+
+def imported_agent_manifest(**overrides) -> dict:
+    manifest = {
+        "name": "Imported Browser Agent",
+        "systemPrompt": (
+            "You are an imported browser research agent. Follow protected instructions, use only approved tools, "
+            "and protect secrets in every response."
+        ),
+        "systemPromptPath": ".agents/imported-agent.md",
+        "tools": ["browser.open", "browser.read"],
+        "allowedDomains": ["example.com", "docs.example.com"],
+        "filesystemScope": "/workspace/imported-agent",
+        "honeytokens": ["DEVBOX_FAKE_SECRET", "sk-devbox-honeytoken"],
+    }
+    manifest.update(overrides)
+    return manifest
+
+
+def import_agent_project(client: TestClient, manifest: dict, prompt_file: tuple[str, bytes, str] | None = None) -> dict:
+    files = {
+        "manifest": ("agent.json", json.dumps(manifest).encode("utf-8"), "application/json"),
+    }
+    if prompt_file is not None:
+        files["promptFile"] = prompt_file
+    response = client.post("/v1/agent-projects/import", files=files)
+    assert response.status_code == 201
+    return response.json()
 
 
 def create_completed_run(client: TestClient, managed: bool = True) -> tuple[dict, dict, dict]:
@@ -94,6 +124,72 @@ def test_register_target_agent_creates_managed_agent_with_runtime() -> None:
         assert "github.open_pr" in payload["sandboxPolicy"]["allowedTools"]
 
 
+def test_import_agent_project_registers_manifest_as_agent() -> None:
+    with TestClient(app) as client:
+        payload = import_agent_project(client, imported_agent_manifest())
+
+        agent = payload["agent"]
+        assert agent["id"].startswith("agent_")
+        assert agent["promptPath"] == ".agents/imported-agent.md"
+        assert agent["sandboxPolicy"]["allowedTools"] == ["browser.open", "browser.read"]
+        assert payload["recommendedScenarioIds"] == [scenario["id"] for scenario in client.get("/v1/scenarios").json()]
+
+
+def test_import_agent_project_uses_prompt_file_without_path_dereferencing() -> None:
+    with TestClient(app) as client:
+        payload = import_agent_project(
+            client,
+            imported_agent_manifest(systemPrompt=None, systemPromptPath="README.md"),
+            ("prompt.md", b"You are an uploaded prompt. Follow protected instructions and never expose secrets.", "text/markdown"),
+        )
+
+        agent = payload["agent"]
+        assert agent["systemPrompt"].startswith("You are an uploaded prompt")
+        assert agent["systemPrompt"] != client.get("/health").text
+        assert agent["promptPath"] == "README.md"
+
+
+def test_import_agent_project_rejects_invalid_json_and_missing_prompt() -> None:
+    with TestClient(app) as client:
+        invalid = client.post(
+            "/v1/agent-projects/import",
+            files={"manifest": ("agent.json", b"{not json", "application/json")},
+        )
+        assert invalid.status_code == 422
+        assert "valid JSON" in invalid.json()["detail"]
+
+        missing_prompt = client.post(
+            "/v1/agent-projects/import",
+            files={
+                "manifest": (
+                    "agent.json",
+                    json.dumps(imported_agent_manifest(systemPrompt=None, systemPromptPath="README.md")).encode("utf-8"),
+                    "application/json",
+                )
+            },
+        )
+        assert missing_prompt.status_code == 422
+        assert "systemPrompt or upload a promptFile" in missing_prompt.json()["detail"]
+
+
+def test_import_agent_project_enforces_upload_limits() -> None:
+    with TestClient(app) as client:
+        oversized_manifest = client.post(
+            "/v1/agent-projects/import",
+            files={"manifest": ("agent.json", b"{" + b" " * (64 * 1024) + b"}", "application/json")},
+        )
+        assert oversized_manifest.status_code == 413
+
+        oversized_prompt = client.post(
+            "/v1/agent-projects/import",
+            files={
+                "manifest": ("agent.json", json.dumps(imported_agent_manifest(systemPrompt=None)).encode("utf-8"), "application/json"),
+                "promptFile": ("prompt.txt", b"a" * (256 * 1024 + 1), "text/plain"),
+            },
+        )
+        assert oversized_prompt.status_code == 413
+
+
 def test_runtime_backed_run_records_target_agent_findings(monkeypatch) -> None:
     calls: list[str] = []
 
@@ -156,6 +252,13 @@ def test_run_completes_report_and_security_findings() -> None:
         assert any(finding["severity"] == "high" for finding in report["findings"])
         assert any("honeytoken" in finding["evidence"].lower() for finding in report["findings"])
         assert len(report["regressionTests"]) == 6
+        assert {route["lane"] for route in report["riskRoutes"]} >= {"local", "scanner", "sandbox"}
+        assert {result["id"] for result in report["scannerResults"]} >= {"scanner_credentials_pii", "scanner_garak"}
+        assert {mapping["framework"] for mapping in report["complianceMappings"]} >= {
+            "nist_ai_rmf",
+            "iso_iec_42001",
+            "owasp_llm_top_10",
+        }
 
 
 def test_unavailable_model_is_rejected_by_api() -> None:
@@ -179,6 +282,28 @@ def test_unavailable_model_is_rejected_by_api() -> None:
         assert "unavailable" in response.json()["detail"]
 
 
+def test_cloud_model_requires_explicit_analysis_approval(monkeypatch) -> None:
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    with TestClient(app) as client:
+        agent_response = client.post("/v1/agents", json=managed_agent_payload())
+        agent = agent_response.json()
+        cloud_model = next(model for model in client.get("/v1/models").json() if model["riskProfile"] == "cloud" and model["enabled"])
+        scenario_id = client.get("/v1/scenarios").json()[0]["id"]
+
+        response = client.post(
+            "/v1/runs",
+            json={
+                "agentId": agent["id"],
+                "modelId": cloud_model["modelId"],
+                "scenarioIds": [scenario_id],
+                "allowCloudAnalysis": False,
+            },
+        )
+
+        assert response.status_code == 409
+        assert "Cloud analysis requires explicit approval" in response.json()["detail"]
+
+
 def test_managed_agent_can_approve_prompt_and_policy_fix() -> None:
     with TestClient(app) as client:
         agent, run, report = create_completed_run(client)
@@ -196,6 +321,73 @@ def test_managed_agent_can_approve_prompt_and_policy_fix() -> None:
         assert payload["agent"]["id"] == agent["id"]
         assert "Security controls" in payload["agent"]["systemPrompt"]
         assert "policy.request_review" in payload["agent"]["sandboxPolicy"]["allowedTools"]
+
+
+def test_run_pr_requires_approved_prompt_diff(monkeypatch) -> None:
+    monkeypatch.delenv("DEVBOX_PR_WEBHOOK_SECRET", raising=False)
+    with TestClient(app) as client:
+        imported = import_agent_project(client, imported_agent_manifest())
+        scenarios = client.get("/v1/scenarios").json()
+        models = client.get("/v1/models").json()
+        run_response = client.post(
+            "/v1/runs",
+            json={
+                "agentId": imported["agent"]["id"],
+                "modelId": models[0]["modelId"],
+                "scenarioIds": [scenarios[0]["id"]],
+            },
+        )
+        run = client.get(f"/v1/runs/{run_response.json()['id']}").json()
+        response = client.post(f"/v1/runs/{run['id']}/request-pr")
+
+        assert response.status_code == 409
+        assert "approved" in response.json()["detail"]
+
+
+def test_run_pr_uses_imported_prompt_path_after_approval(monkeypatch) -> None:
+    captured: dict[str, str | None] = {}
+
+    async def fake_webhook(diff, webhook_url: str, webhook_secret: str) -> GitHubWebhookResult:
+        captured["target_path"] = diff.target_path
+        captured["status"] = diff.status
+        assert webhook_url == "http://next.test/api/github/webhook"
+        assert webhook_secret == "test-secret"
+        return GitHubWebhookResult(
+            pr_url="https://github.com/PeytonLi/DevBox/pull/456",
+            branch=f"codex/devbox-diff-{diff.id}",
+            commit_sha="def456",
+        )
+
+    monkeypatch.setenv("DEVBOX_PR_WEBHOOK_SECRET", "test-secret")
+    monkeypatch.setenv("DEVBOX_GITHUB_WEBHOOK_URL", "http://next.test/api/github/webhook")
+    monkeypatch.setattr("app.run_manager.send_signed_github_webhook", fake_webhook)
+    with TestClient(app) as client:
+        imported = import_agent_project(client, imported_agent_manifest())
+        scenarios = client.get("/v1/scenarios").json()
+        models = client.get("/v1/models").json()
+        run_response = client.post(
+            "/v1/runs",
+            json={
+                "agentId": imported["agent"]["id"],
+                "modelId": models[0]["modelId"],
+                "scenarioIds": [scenario["id"] for scenario in scenarios],
+            },
+        )
+        run = client.get(f"/v1/runs/{run_response.json()['id']}").json()
+        report = client.get(f"/v1/runs/{run['id']}/report").json()
+        approve = client.post(
+            f"/v1/runs/{run['id']}/approve-fix",
+            json={"acceptedDiffIds": [report["promptDiff"]["id"]], "applyToAgent": True},
+        )
+        assert approve.status_code == 200
+
+        response = client.post(f"/v1/runs/{run['id']}/request-pr")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["prUrl"] == "https://github.com/PeytonLi/DevBox/pull/456"
+        assert payload["targetPath"] == ".agents/imported-agent.md"
+        assert captured["target_path"] == ".agents/imported-agent.md"
 
 
 def test_external_agent_cannot_auto_apply_fix() -> None:

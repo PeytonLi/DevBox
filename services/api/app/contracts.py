@@ -134,7 +134,7 @@ class SandboxPolicy(ApiModel):
 class AgentSpec(ApiModel):
     id: str | None = None
     name: str = Field(min_length=1, max_length=120)
-    system_prompt: str = Field(min_length=20, max_length=8000)
+    system_prompt: str = Field(min_length=20, max_length=256 * 1024)
     prompt_path: str | None = None
     tools: list[str] = Field(default_factory=list)
     sandbox_policy: SandboxPolicy = Field(default_factory=SandboxPolicy)
