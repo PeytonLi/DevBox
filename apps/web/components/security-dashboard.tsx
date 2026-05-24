@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Bot,
   Check,
+  ChevronDown,
   ChevronRight,
   Cpu,
   Database,
@@ -127,6 +128,21 @@ export function SecurityDashboard() {
   const [approvalMessage, setApprovalMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    configure: true,
+    engine: true,
+    scenarios: true,
+    pipeline: true,
+    results: true,
+  });
+
+  const toggleSection = (sectionId: string) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [sectionId]: !prev[sectionId],
+    }));
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -434,11 +450,7 @@ export function SecurityDashboard() {
           </div>
         </div>
         <nav className="nav-list">
-          <NavAnchor href="#configure" icon={<Bot size={17} />} label="Configure agent" />
-          <NavAnchor href="#engine" icon={<Cpu size={17} />} label="Scan engine" />
-          <NavAnchor href="#scenarios" icon={<ListChecks size={17} />} label="Attack scenarios" />
-          <NavAnchor href="#pipeline" icon={<ScanSearch size={17} />} label="Live pipeline" />
-          <NavAnchor href="#results" icon={<ShieldCheck size={17} />} label="Security report" />
+          <NavAnchor href="#" icon={<Cpu size={17} />} label="Scan Engine" active />
         </nav>
         <div className="sidebar-card">
           <div className="sidebar-status">
@@ -500,127 +512,133 @@ export function SecurityDashboard() {
               title="Configure agent"
               subtitle="Select a template or import your agent project file"
               badge={agentLabel}
+              isExpanded={expandedSections.configure}
+              onToggle={() => toggleSection("configure")}
             />
-            <div className="import-tabs">
-              {(["template", "github", "local"] as ImportTab[]).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  className={importTab === tab ? "import-tab active" : "import-tab"}
-                  onClick={() => setImportTab(tab)}
-                >
-                  {tab === "template" ? "Templates" : tab === "github" ? "GitHub" : "Local file"}
-                </button>
-              ))}
-            </div>
+            {expandedSections.configure && (
+              <div style={{ marginTop: "16px" }}>
+                <div className="import-tabs">
+                  {(["template", "github", "local"] as ImportTab[]).map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      className={importTab === tab ? "import-tab active" : "import-tab"}
+                      onClick={() => setImportTab(tab)}
+                    >
+                      {tab === "template" ? "Templates" : tab === "github" ? "GitHub" : "Local file"}
+                    </button>
+                  ))}
+                </div>
 
-            {importTab === "template" ? (
-              <div className="model-list compact">
-                {targetAgents.map((target) => (
-                  <button
-                    key={target.id}
-                    className={selectedTargetId === target.id ? "model-card selected" : "model-card"}
-                    type="button"
-                    onClick={() => selectTarget(target)}
-                  >
-                    <div>
-                      <strong>{target.name}</strong>
-                      <small>{target.category}</small>
+                {importTab === "template" ? (
+                  <div className="model-list compact">
+                    {targetAgents.map((target) => (
+                      <button
+                        key={target.id}
+                        className={selectedTargetId === target.id ? "model-card selected" : "model-card"}
+                        type="button"
+                        onClick={() => selectTarget(target)}
+                      >
+                        <div>
+                          <strong>{target.name}</strong>
+                          <small>{target.category}</small>
+                        </div>
+                        {selectedTargetId === target.id ? <Check size={17} /> : null}
+                        <p>{target.description}</p>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                {importTab === "github" ? (
+                  <div className="import-body">
+                    <div className="github-import-grid">
+                      <label className="field">
+                        <span>Owner</span>
+                        <input value={githubSource.owner} onChange={(e) => setGithubSource((c) => ({ ...c, owner: e.target.value }))} />
+                      </label>
+                      <label className="field">
+                        <span>Repository</span>
+                        <input value={githubSource.repo} onChange={(e) => setGithubSource((c) => ({ ...c, repo: e.target.value }))} />
+                      </label>
+                      <label className="field">
+                        <span>Ref</span>
+                        <input value={githubSource.ref ?? ""} onChange={(e) => setGithubSource((c) => ({ ...c, ref: e.target.value }))} />
+                      </label>
+                      <label className="field">
+                        <span>Prompt path</span>
+                        <input value={githubSource.promptPath} onChange={(e) => setGithubSource((c) => ({ ...c, promptPath: e.target.value }))} />
+                      </label>
+                      <label className="field">
+                        <span>Manifest path</span>
+                        <input
+                          value={githubSource.manifestPath ?? ""}
+                          onChange={(e) => setGithubSource((c) => ({ ...c, manifestPath: e.target.value || null }))}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Installation ID</span>
+                        <input
+                          value={githubSource.installationId ?? ""}
+                          onChange={(e) =>
+                            setGithubSource((c) => ({ ...c, installationId: e.target.value ? Number(e.target.value) : null }))
+                          }
+                        />
+                      </label>
                     </div>
-                    {selectedTargetId === target.id ? <Check size={17} /> : null}
-                    <p>{target.description}</p>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-
-            {importTab === "github" ? (
-              <div className="import-body">
-                <div className="github-import-grid">
-                  <label className="field">
-                    <span>Owner</span>
-                    <input value={githubSource.owner} onChange={(e) => setGithubSource((c) => ({ ...c, owner: e.target.value }))} />
-                  </label>
-                  <label className="field">
-                    <span>Repository</span>
-                    <input value={githubSource.repo} onChange={(e) => setGithubSource((c) => ({ ...c, repo: e.target.value }))} />
-                  </label>
-                  <label className="field">
-                    <span>Ref</span>
-                    <input value={githubSource.ref ?? ""} onChange={(e) => setGithubSource((c) => ({ ...c, ref: e.target.value }))} />
-                  </label>
-                  <label className="field">
-                    <span>Prompt path</span>
-                    <input value={githubSource.promptPath} onChange={(e) => setGithubSource((c) => ({ ...c, promptPath: e.target.value }))} />
-                  </label>
-                  <label className="field">
-                    <span>Manifest path</span>
-                    <input
-                      value={githubSource.manifestPath ?? ""}
-                      onChange={(e) => setGithubSource((c) => ({ ...c, manifestPath: e.target.value || null }))}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Installation ID</span>
-                    <input
-                      value={githubSource.installationId ?? ""}
-                      onChange={(e) =>
-                        setGithubSource((c) => ({ ...c, installationId: e.target.value ? Number(e.target.value) : null }))
-                      }
-                    />
-                  </label>
-                </div>
-                <button className="secondary-button inline" type="button" onClick={importGitHubAgent} disabled={phase === "importing"}>
-                  {phase === "importing" ? <RefreshCw className="spin" size={17} /> : <GitBranch size={17} />}
-                  Import from GitHub
-                </button>
-                {githubImport ? (
-                  <div className="import-status">
-                    <strong>{githubImport.repository.fullName}</strong>
-                    <span>
-                      {githubImport.source.promptPath} / {githubImport.commitSha ?? "latest ref"}
-                    </span>
+                    <button className="secondary-button inline" type="button" onClick={importGitHubAgent} disabled={phase === "importing"}>
+                      {phase === "importing" ? <RefreshCw className="spin" size={17} /> : <GitBranch size={17} />}
+                      Import from GitHub
+                    </button>
+                    {githubImport ? (
+                      <div className="import-status">
+                        <strong>{githubImport.repository.fullName}</strong>
+                        <span>
+                          {githubImport.source.promptPath} / {githubImport.commitSha ?? "latest ref"}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
-              </div>
-            ) : null}
 
-            {importTab === "local" ? (
-              <div className="import-body">
-                <label className="field">
-                  <span>Manifest JSON</span>
-                  <textarea className="manifest-input compact" value={importManifest} onChange={(e) => setImportManifest(e.target.value)} />
-                </label>
-                <div className="file-grid">
-                  <label className="file-field">
-                    <span>Manifest file</span>
-                    <input type="file" accept="application/json,.json" onChange={(e) => void loadManifestFile(e.target.files?.[0] ?? null)} />
-                  </label>
-                  <label className="file-field">
-                    <span>Prompt file</span>
-                    <input type="file" accept=".md,.txt,text/markdown,text/plain" onChange={(e) => setPromptFile(e.target.files?.[0] ?? null)} />
-                  </label>
-                </div>
-                <button className="secondary-button inline" type="button" onClick={importAgentProject} disabled={phase === "importing"}>
-                  {phase === "importing" ? <RefreshCw className="spin" size={17} /> : <Upload size={17} />}
-                  Import agent
-                </button>
-                {registeredAgent && !selectedTarget ? (
-                  <div className="import-status">
-                    <strong>{registeredAgent.name}</strong>
-                    <span>{registeredAgent.promptPath ?? "inline prompt"}</span>
+                {importTab === "local" ? (
+                  <div className="import-body">
+                    <label className="field">
+                      <span>Manifest JSON</span>
+                      <textarea className="manifest-input" value={importManifest} onChange={(e) => setImportManifest(e.target.value)} />
+                    </label>
+                    <div className="file-grid">
+                      <label className="file-field">
+                        <span>Manifest file</span>
+                        <input type="file" accept="application/json,.json" onChange={(e) => void loadManifestFile(e.target.files?.[0] ?? null)} />
+                      </label>
+                      <label className="file-field">
+                        <span>Prompt file</span>
+                        <input type="file" accept=".md,.txt,text/markdown,text/plain" onChange={(e) => setPromptFile(e.target.files?.[0] ?? null)} />
+                      </label>
+                    </div>
+                    <button className="secondary-button inline" type="button" onClick={importAgentProject} disabled={phase === "importing"}>
+                      {phase === "importing" ? <RefreshCw className="spin" size={17} /> : <Upload size={17} />}
+                      Import agent
+                    </button>
+                    {registeredAgent && !selectedTarget ? (
+                      <div className="import-status">
+                        <strong>{registeredAgent.name}</strong>
+                        <span>{registeredAgent.promptPath ?? "inline prompt"}</span>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
-              </div>
-            ) : null}
 
-            {importWarnings.length > 0 ? (
-              <ul className="warning-list">
-                {importWarnings.map((warning) => (
-                  <li key={warning}>{warning}</li>
-                ))}
-              </ul>
-            ) : null}
+                {importWarnings.length > 0 ? (
+                  <ul className="warning-list">
+                    {importWarnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            )}
           </section>
 
           <section className="scan-section panel" id="engine">
@@ -630,44 +648,50 @@ export function SecurityDashboard() {
               title="Scan engine"
               subtitle="High-speed router and analysis models for threat routing"
               badge={selectedModel?.provider ?? "engine"}
+              isExpanded={expandedSections.engine}
+              onToggle={() => toggleSection("engine")}
             />
-            <div className="model-list compact">
-              {models.map((model) => (
-                <button
-                  key={model.modelId}
-                  className={selectedModelId === model.modelId ? "model-card selected" : "model-card"}
-                  type="button"
-                  disabled={!model.enabled}
-                  onClick={() => selectModel(model)}
-                >
-                  <div>
-                    <strong>
-                      <span className={`provider-dot ${model.provider}`} />
-                      {model.displayName}
-                    </strong>
-                    <small>{model.riskProfile} · {model.costTier}</small>
-                  </div>
-                  <span className="model-state">{model.enabled ? "ready" : "off"}</span>
-                  <p>{model.enabled ? model.privacyNote : model.unavailableReason ?? "Unavailable"}</p>
-                </button>
-              ))}
-            </div>
-            {requiresCloudApproval ? (
-              <div className="switch-row cloud-approval-row">
-                <div>
-                  <span>Approve cloud analysis</span>
-                  <small>{selectedModel?.displayName} can process selected run data in the cloud.</small>
+            {expandedSections.engine && (
+              <div style={{ marginTop: "16px" }}>
+                <div className="model-list compact">
+                  {models.map((model) => (
+                    <button
+                      key={model.modelId}
+                      className={selectedModelId === model.modelId ? "model-card selected" : "model-card"}
+                      type="button"
+                      disabled={!model.enabled}
+                      onClick={() => selectModel(model)}
+                    >
+                      <div>
+                        <strong>
+                          <span className={`provider-dot ${model.provider}`} />
+                          {model.displayName}
+                        </strong>
+                        <small>{model.riskProfile} · {model.costTier}</small>
+                      </div>
+                      <span className="model-state">{model.enabled ? "ready" : "off"}</span>
+                      <p>{model.enabled ? model.privacyNote : model.unavailableReason ?? "Unavailable"}</p>
+                    </button>
+                  ))}
                 </div>
-                <button
-                  className={allowCloudAnalysis ? "toggle is-on" : "toggle"}
-                  type="button"
-                  aria-pressed={allowCloudAnalysis}
-                  onClick={() => setAllowCloudAnalysis((c) => !c)}
-                >
-                  <span />
-                </button>
+                {requiresCloudApproval ? (
+                  <div className="switch-row cloud-approval-row">
+                    <div>
+                      <span>Approve cloud analysis</span>
+                      <small>{selectedModel?.displayName} can process selected run data in the cloud.</small>
+                    </div>
+                    <button
+                      className={allowCloudAnalysis ? "toggle is-on" : "toggle"}
+                      type="button"
+                      aria-pressed={allowCloudAnalysis}
+                      onClick={() => setAllowCloudAnalysis((c) => !c)}
+                    >
+                      <span />
+                    </button>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            )}
           </section>
 
           <section className="scan-section panel" id="scenarios">
@@ -677,24 +701,28 @@ export function SecurityDashboard() {
               title="Attack scenarios"
               subtitle="OWASP LLM Top 10 mapped adversarial tests"
               badge={`${selectedScenarioIds.length} active`}
+              isExpanded={expandedSections.scenarios}
+              onToggle={() => toggleSection("scenarios")}
             />
-            <div className="scenario-list compact">
-              {scenarios.map((scenario) => (
-                <button
-                  key={scenario.id}
-                  className={selectedScenarioIds.includes(scenario.id) ? "scenario-row selected" : "scenario-row"}
-                  type="button"
-                  onClick={() => toggleScenario(scenario.id)}
-                >
-                  {selectedScenarioIds.includes(scenario.id) ? <Check size={16} /> : <FileSearch size={16} />}
-                  <div>
-                    <strong>{scenario.name}</strong>
-                    <small>{scenario.attackGoal}</small>
-                  </div>
-                  <span className={`severity ${scenario.defaultSeverity}`}>{scenario.defaultSeverity}</span>
-                </button>
-              ))}
-            </div>
+            {expandedSections.scenarios && (
+              <div className="scenario-list compact" style={{ marginTop: "16px" }}>
+                {scenarios.map((scenario) => (
+                  <button
+                    key={scenario.id}
+                    className={selectedScenarioIds.includes(scenario.id) ? "scenario-row selected" : "scenario-row"}
+                    type="button"
+                    onClick={() => toggleScenario(scenario.id)}
+                  >
+                    {selectedScenarioIds.includes(scenario.id) ? <Check size={16} /> : <FileSearch size={16} />}
+                    <div>
+                      <strong>{scenario.name}</strong>
+                      <small>{scenario.attackGoal}</small>
+                    </div>
+                    <span className={`severity ${scenario.defaultSeverity}`}>{scenario.defaultSeverity}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="scan-section panel pipeline-panel" id="pipeline">
@@ -704,31 +732,37 @@ export function SecurityDashboard() {
               title="Live pipeline"
               subtitle="Real-time trace as workloads route through each security stage"
               badge={run?.status ?? "idle"}
+              isExpanded={expandedSections.pipeline}
+              onToggle={() => toggleSection("pipeline")}
             />
-            <div className="stage-cards">
-              {PIPELINE_STAGES.map((stage) => (
-                <StageCard key={stage.id} stage={stage} status={stageStatuses[stage.id]} eventCount={countStageEvents(stage.id, events)} />
-              ))}
-            </div>
-            {events.length > 0 ? (
-              <div className="trace-list">
-                {events.map((event) => (
-                  <div className="trace-event" key={event.sequence}>
-                    <span className={`actor ${event.actor}`}>{event.actor.replace("_", " ")}</span>
-                    <div>
-                      <strong>{event.message}</strong>
-                      <span>
-                        #{event.sequence}
-                        {event.toolCall ? ` · ${event.toolCall}` : ""}
-                        {event.policyDecision ? ` · ${event.policyDecision}` : ""}
-                        {event.riskSignal ? ` · ${event.riskSignal}` : ""}
-                      </span>
-                    </div>
+            {expandedSections.pipeline && (
+              <div style={{ marginTop: "16px" }}>
+                <div className="stage-cards">
+                  {PIPELINE_STAGES.map((stage) => (
+                    <StageCard key={stage.id} stage={stage} status={stageStatuses[stage.id]} eventCount={countStageEvents(stage.id, events)} />
+                  ))}
+                </div>
+                {events.length > 0 ? (
+                  <div className="trace-list">
+                    {events.map((event) => (
+                      <div className="trace-event" key={event.sequence}>
+                        <span className={`actor ${event.actor}`}>{event.actor.replace("_", " ")}</span>
+                        <div>
+                          <strong>{event.message}</strong>
+                          <span>
+                            #{event.sequence}
+                            {event.toolCall ? ` · ${event.toolCall}` : ""}
+                            {event.policyDecision ? ` · ${event.policyDecision}` : ""}
+                            {event.riskSignal ? ` · ${event.riskSignal}` : ""}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                ) : (
+                  <EmptyState icon={<Sparkles size={24} />} title="Run a scan to watch the dual-engine pipeline in action" />
+                )}
               </div>
-            ) : (
-              <EmptyState icon={<Sparkles size={24} />} title="Run a scan to watch the dual-engine pipeline in action" />
             )}
           </section>
 
@@ -739,84 +773,90 @@ export function SecurityDashboard() {
               title="Security report"
               subtitle="Findings, scanner output, risk routes, and compliance mappings"
               badge={report ? `${report.score}/100` : "pending"}
+              isExpanded={expandedSections.results}
+              onToggle={() => toggleSection("results")}
             />
-            {report ? (
-              <>
-                <div className="score-strip">
-                  <strong className={scoreClass(report.score)}>{report.score}</strong>
-                  <div>
-                    <span>Security score</span>
-                    <p>{report.traceSummary}</p>
-                    <div className="score-progress">
-                      <div className="score-progress-indicator" style={{ transform: `translateX(-${100 - report.score}%)` }} />
-                    </div>
-                  </div>
-                </div>
-
-                {report.riskRoutes.length > 0 ? (
-                  <div className="result-block">
-                    <h3>Risk routing</h3>
-                    <div className="route-cards">
-                      {report.riskRoutes.map((route, i) => (
-                        <div className="route-card" key={`${route.lane}-${i}`}>
-                          <span className={`lane-badge ${route.lane}`}>{route.lane}</span>
-                          <span className={`severity ${route.severity}`}>{route.severity}</span>
-                          <p>{route.rationale}</p>
+            {expandedSections.results && (
+              <div style={{ marginTop: "16px" }}>
+                {report ? (
+                  <>
+                    <div className="score-strip">
+                      <strong className={scoreClass(report.score)}>{report.score}</strong>
+                      <div>
+                        <span>Security score</span>
+                        <p>{report.traceSummary}</p>
+                        <div className="score-progress">
+                          <div className="score-progress-indicator" style={{ transform: `translateX(-${100 - report.score}%)` }} />
                         </div>
-                      ))}
+                      </div>
                     </div>
-                  </div>
-                ) : null}
 
-                {report.scannerResults.length > 0 ? (
-                  <div className="result-block">
-                    <h3>Scanner results</h3>
-                    <ScannerResultsList results={report.scannerResults} />
-                  </div>
-                ) : null}
-
-                <div className="result-block">
-                  <h3>Findings</h3>
-                  {report.findings.length > 0 ? (
-                    <div className="finding-list compact">
-                      {report.findings.map((finding) => (
-                        <div className="finding-row" key={finding.id}>
-                          <span className={`severity ${finding.severity}`}>{finding.severity}</span>
-                          <div>
-                            <strong>{finding.violatedPolicy}</strong>
-                            <p>{finding.evidence}</p>
-                            <small>{finding.recommendation}</small>
-                          </div>
+                    {report.riskRoutes.length > 0 ? (
+                      <div className="result-block">
+                        <h3>Risk routing</h3>
+                        <div className="route-cards">
+                          {report.riskRoutes.map((route, i) => (
+                            <div className="route-card" key={`${route.lane}-${i}`}>
+                              <span className={`lane-badge ${route.lane}`}>{route.lane}</span>
+                              <span className={`severity ${route.severity}`}>{route.severity}</span>
+                              <p>{route.rationale}</p>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      </div>
+                    ) : null}
+
+                    {report.scannerResults.length > 0 ? (
+                      <div className="result-block">
+                        <h3>Scanner results</h3>
+                        <ScannerResultsList results={report.scannerResults} />
+                      </div>
+                    ) : null}
+
+                    <div className="result-block">
+                      <h3>Findings</h3>
+                      {report.findings.length > 0 ? (
+                        <div className="finding-list compact">
+                          {report.findings.map((finding) => (
+                            <div className="finding-row" key={finding.id}>
+                              <span className={`severity ${finding.severity}`}>{finding.severity}</span>
+                              <div>
+                                <strong>{finding.violatedPolicy}</strong>
+                                <p>{finding.evidence}</p>
+                                <small>{finding.recommendation}</small>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="muted-note">No critical findings detected in this scan.</p>
+                      )}
                     </div>
-                  ) : (
-                    <p className="muted-note">No critical findings detected in this scan.</p>
-                  )}
-                </div>
 
-                {report.complianceMappings.length > 0 ? (
-                  <div className="result-block">
-                    <h3>Compliance layer</h3>
-                    <ComplianceTable mappings={report.complianceMappings} />
-                  </div>
-                ) : null}
+                    {report.complianceMappings.length > 0 ? (
+                      <div className="result-block">
+                        <h3>Compliance layer</h3>
+                        <ComplianceTable mappings={report.complianceMappings} />
+                      </div>
+                    ) : null}
 
-                <div className="remediation-box">
-                  <Wrench size={18} />
-                  <div>
-                    <strong>Defender remediation available</strong>
-                    <p>Review the proposed prompt and policy hardening, then apply fixes to your agent configuration.</p>
-                  </div>
-                  <button className="secondary-button inline" type="button" onClick={approveTargetFix} disabled={phase === "approving"}>
-                    {phase === "approving" ? <RefreshCw className="spin" size={17} /> : <Wrench size={17} />}
-                    Apply remediation
-                  </button>
-                </div>
-                {approvalMessage ? <p className="success-line">{approvalMessage}</p> : null}
-              </>
-            ) : (
-              <EmptyState icon={<ShieldCheck size={24} />} title="Complete a scan to generate your security scorecard and compliance report" />
+                    <div className="remediation-box">
+                      <Wrench size={18} />
+                      <div>
+                        <strong>Defender remediation available</strong>
+                        <p>Review the proposed prompt and policy hardening, then apply fixes to your agent configuration.</p>
+                      </div>
+                      <button className="secondary-button inline" type="button" onClick={approveTargetFix} disabled={phase === "approving"}>
+                        {phase === "approving" ? <RefreshCw className="spin" size={17} /> : <Wrench size={17} />}
+                        Apply remediation
+                      </button>
+                    </div>
+                    {approvalMessage ? <p className="success-line">{approvalMessage}</p> : null}
+                  </>
+                ) : (
+                  <EmptyState icon={<ShieldCheck size={24} />} title="Complete a scan to generate your security scorecard and compliance report" />
+                )}
+              </div>
             )}
           </section>
 
@@ -959,27 +999,48 @@ function ScannerResultsList({ results }: { results: ScannerResult[] }) {
 
 function ComplianceTable({ mappings }: { mappings: ComplianceMapping[] }) {
   const frameworkLabels: Record<string, string> = {
-    nist_ai_rmf: "NIST AI RMF",
-    iso_iec_42001: "ISO/IEC 42001",
-    owasp_llm_top_10: "OWASP LLM Top 10"
+    nist_ai_rmf: "NIST AI RMF Compliance",
+    iso_iec_42001: "ISO/IEC 42001 Compliance",
+    owasp_llm_top_10: "OWASP LLM Top 10 Security"
   };
+
+  // Group by framework
+  const grouped = mappings.reduce((acc, mapping) => {
+    const fw = mapping.framework;
+    if (!acc[fw]) acc[fw] = [];
+    acc[fw].push(mapping);
+    return acc;
+  }, {} as Record<string, ComplianceMapping[]>);
+
   return (
-    <div className="compliance-table">
-      {mappings.map((mapping, i) => (
-        <div className={`compliance-row ${mapping.status}`} key={`${mapping.control}-${i}`}>
-          <span className="compliance-framework">{frameworkLabels[mapping.framework] ?? mapping.framework}</span>
-          <strong>{mapping.control}</strong>
-          <span className={`compliance-status ${mapping.status}`}>{mapping.status.replace("_", " ")}</span>
-          <p>{mapping.evidence}</p>
+    <div className="compliance-categories" style={{ display: "grid", gap: "16px", marginTop: "12px" }}>
+      {Object.entries(grouped).map(([framework, items]) => (
+        <div key={framework} className="compliance-framework-group" style={{ border: "1px solid var(--line)", borderRadius: "var(--radius)", padding: "14px", background: "#ffffff" }}>
+          <h4 style={{ margin: "0 0 10px", fontSize: "13px", fontWeight: 700, color: "var(--ink)", borderBottom: "1px solid var(--line)", paddingBottom: "6px", fontFamily: "var(--font-sans)" }}>
+            {frameworkLabels[framework] ?? framework}
+          </h4>
+          <div className="compliance-table" style={{ display: "grid", gap: "8px" }}>
+            {items.map((mapping, i) => (
+              <div className={`compliance-row ${mapping.status}`} key={`${mapping.control}-${i}`}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+                  <strong>{mapping.control}</strong>
+                  <span className={`compliance-status ${mapping.status}`}>{mapping.status.replace("_", " ")}</span>
+                </div>
+                <p style={{ margin: "6px 0 0", color: "var(--muted)", fontSize: "12px", lineHeight: "1.4" }}>
+                  {mapping.evidence}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       ))}
     </div>
   );
 }
 
-function NavAnchor({ href, icon, label }: { href: string; icon: ReactNode; label: string }) {
+function NavAnchor({ href, icon, label, active }: { href: string; icon: ReactNode; label: string; active?: boolean }) {
   return (
-    <a className="nav-item" href={href}>
+    <a className={`nav-item ${active ? "active" : ""}`} href={href}>
       {icon}
       <span>{label}</span>
     </a>
@@ -991,25 +1052,42 @@ function SectionHeader({
   icon,
   title,
   subtitle,
-  badge
+  badge,
+  isCollapsible = true,
+  isExpanded = true,
+  onToggle
 }: {
   step: number;
   icon: ReactNode;
   title: string;
   subtitle: string;
-  badge: string;
+  badge?: string;
+  isCollapsible?: boolean;
+  isExpanded?: boolean;
+  onToggle?: () => void;
 }) {
   return (
-    <div className="section-header">
-      <div className="section-header-main">
+    <div
+      className="section-header"
+      style={{ cursor: isCollapsible ? "pointer" : "default", userSelect: "none" }}
+      onClick={isCollapsible ? onToggle : undefined}
+    >
+      <div className="section-header-main" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
         <span className="step-badge">{step}</span>
         {icon}
         <div>
-          <h2>{title}</h2>
+          <h2 style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            {title}
+            {isCollapsible && (
+              <span className="chevron-icon" style={{ display: "inline-flex", color: "var(--muted)", marginLeft: "4px" }}>
+                {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              </span>
+            )}
+          </h2>
           <p>{subtitle}</p>
         </div>
       </div>
-      <span className="section-badge">{badge}</span>
+      {badge ? <span className="section-badge">{badge}</span> : null}
     </div>
   );
 }
