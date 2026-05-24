@@ -32,7 +32,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       LOCAL_MODEL_BASE_URL: ${LOCAL_MODEL_BASE_URL:-}
-      DEVBOX_GEMINI_REVIEW_MODEL: ${DEVBOX_GEMINI_REVIEW_MODEL:-gemini-2.5-flash}
+      DEVBOX_GEMINI_REVIEW_MODEL: ${DEVBOX_GEMINI_REVIEW_MODEL:-gemini-3.5-flash}
     depends_on:
       - postgres
       - redis
@@ -53,7 +53,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       LOCAL_MODEL_BASE_URL: ${LOCAL_MODEL_BASE_URL:-}
-      DEVBOX_GEMINI_REVIEW_MODEL: ${DEVBOX_GEMINI_REVIEW_MODEL:-gemini-2.5-flash}
+      DEVBOX_GEMINI_REVIEW_MODEL: ${DEVBOX_GEMINI_REVIEW_MODEL:-gemini-3.5-flash}
     depends_on:
       - postgres
       - redis

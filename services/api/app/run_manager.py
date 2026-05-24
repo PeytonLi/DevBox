@@ -527,7 +527,11 @@ class RunManager:
         if not webhook_url or not webhook_secret:
             raise RunManagerError(503, "GitHub PR creation unavailable: webhook URL or secret is not configured.")
 
+        imported = self.store.get_agent_import_for_agent(agent.id or "")
         target_path = agent.prompt_path or DEFAULT_TARGET_PATH
+        repository = imported.repository.full_name if imported else None
+        base_branch = imported.repository.default_branch if imported else None
+        installation_id = imported.source.installation_id or imported.repository.installation_id if imported else None
         requested = DiffResult(
             id=f"run_diff_{run.id}",
             provider_mode=DiffProviderMode.SIMULATOR,
@@ -540,7 +544,14 @@ class RunManager:
             tool_route=ToolRoute(requested_tools=[], observed_tools=[], violations=[]),
             target_path=target_path,
         )
-        result = await send_signed_github_webhook(requested, webhook_url, webhook_secret)
+        result = await send_signed_github_webhook(
+            requested,
+            webhook_url,
+            webhook_secret,
+            repository=repository,
+            base_branch=base_branch,
+            installation_id=installation_id,
+        )
         response = RequestPrResponse(
             **requested.model_copy(update={"status": DiffStatus.PR_CREATED, "pr_url": result.pr_url}).model_dump(),
             branch=result.branch,

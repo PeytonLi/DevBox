@@ -9,17 +9,17 @@
   "scripts": {
     "dev": "concurrently -n web,api,targets,express -c cyan,magenta,green,yellow \"pnpm dev:web\" \"pnpm dev:api\" \"pnpm dev:target-agents\" \"pnpm dev:express\"",
     "dev:web": "dotenv -e .env -- pnpm --filter @devbox/web dev",
-    "dev:api": ".venv/bin/python -m uvicorn app.main:app --reload --app-dir services/api --port 8000",
-    "worker:api": ".venv/bin/python -m celery --workdir services/api -A app.task_queue.celery_app worker --loglevel=INFO",
-    "dev:target-agents": ".venv/bin/python -m uvicorn app.main:app --reload --app-dir services/target-agents --port 8010",
-    "dev:express": "pnpm --filter @devbox/express-api dev",
+    "dev:api": "node scripts/venv-python.mjs -m uvicorn app.main:app --reload --app-dir services/api --port 8000",
+    "worker:api": "node scripts/venv-python.mjs -m celery --workdir services/api -A app.task_queue.celery_app worker --loglevel=INFO",
+    "dev:target-agents": "node scripts/venv-python.mjs -m uvicorn app.main:app --reload --app-dir services/target-agents --port 8010",
+    "dev:express": "dotenv -e .env -- pnpm --filter @devbox/express-api dev",
     "build": "pnpm --filter @devbox/web build",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm api:test && pnpm target-agents:test",
-    "api:test": ".venv/bin/python -m pytest services/api/tests",
-    "target-agents:test": ".venv/bin/python -m pytest services/target-agents/tests",
-    "api:openapi": ".venv/bin/python services/api/scripts/export_openapi.py",
-    "generate:openapi": ".venv/bin/python services/api/scripts/export_openapi.py --output services/api/openapi.json && pnpm --filter @devbox/shared generate"
+    "api:test": "node scripts/venv-python.mjs -m pytest services/api/tests",
+    "target-agents:test": "node scripts/venv-python.mjs -m pytest services/target-agents/tests",
+    "api:openapi": "node scripts/venv-python.mjs services/api/scripts/export_openapi.py",
+    "generate:openapi": "node scripts/venv-python.mjs services/api/scripts/export_openapi.py --output services/api/openapi.json && pnpm --filter @devbox/shared generate"
   },
   "devDependencies": {
     "concurrently": "9.2.1",

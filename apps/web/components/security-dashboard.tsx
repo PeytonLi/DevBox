@@ -34,6 +34,7 @@ import type {
   GitHubImportSource,
   ModelConfig,
   Report,
+  RequestPrResponse,
   Run,
   RunEvent,
   ScannerResult,
@@ -49,6 +50,7 @@ type Phase =
   | "registering"
   | "running"
   | "approving"
+  | "creating-pr"
   | "error";
 
 type ImportTab = "template" | "github" | "local";
@@ -124,6 +126,7 @@ export function SecurityDashboard() {
   const [run, setRun] = useState<Run | null>(null);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [report, setReport] = useState<Report | null>(null);
+  const [prResult, setPrResult] = useState<RequestPrResponse | null>(null);
   const [approvalMessage, setApprovalMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
@@ -151,7 +154,12 @@ export function SecurityDashboard() {
         setModels(modelData);
         setScenarios(scenarioData);
         setTargetAgents(targetData);
-        setSelectedModelId(modelData.find((model) => model.enabled)?.modelId ?? modelData[0]?.modelId ?? "");
+        setSelectedModelId(
+          modelData.find((model) => model.provider === "google" && model.enabled)?.modelId ??
+            modelData.find((model) => model.enabled)?.modelId ??
+            modelData[0]?.modelId ??
+            ""
+        );
         setSelectedTargetId(targetData[0]?.id ?? "");
         setSelectedScenarioIds(targetData[0]?.recommendedScenarioIds ?? scenarioData.map((scenario) => scenario.id));
         setPhase("idle");
@@ -203,6 +211,7 @@ export function SecurityDashboard() {
     setReport(null);
     setRun(null);
     setApprovalMessage(null);
+    setPrResult(null);
 
     try {
       const agent = selectedTarget ? await api.registerTargetAgent(selectedTarget.id) : registeredAgent;
@@ -279,6 +288,7 @@ export function SecurityDashboard() {
     setEvents([]);
     setReport(null);
     setApprovalMessage(null);
+    setPrResult(null);
   }
 
   async function loadManifestFile(file: File | null) {
@@ -289,7 +299,7 @@ export function SecurityDashboard() {
 
   async function connectRunStream(runId: string) {
     const streamToken = await api.getRunEventsToken(runId);
-    const socket = new WebSocket(webSocketUrl(`/v1/runs/${runId}/events?token=${encodeURIComponent(streamToken.token)}`));
+    const socket = new WebSocket(webSocketUrl(`/v1/runs/${runId}/events`, { token: streamToken.token }));
     socketRef.current = socket;
     let streamFailed = false;
     let fallbackStarted = false;
@@ -375,6 +385,24 @@ export function SecurityDashboard() {
       setPhase("idle");
     } catch (approvalError) {
       setError(approvalError instanceof Error ? approvalError.message : "Could not apply remediation.");
+      setPhase("error");
+    }
+  }
+
+  async function createGitHubPr() {
+    if (!run || !report) return;
+    setPhase("creating-pr");
+    setError(null);
+    try {
+      const response = await api.approveRunPr(run.id, {
+        acceptedDiffIds: [report.promptDiff.id],
+        applyToAgent: false
+      });
+      setPrResult(response);
+      setApprovalMessage("GitHub PR created from the approved prompt remediation.");
+      setPhase("idle");
+    } catch (prError) {
+      setError(prError instanceof Error ? prError.message : "Could not create GitHub PR.");
       setPhase("error");
     }
   }
@@ -469,7 +497,15 @@ export function SecurityDashboard() {
             className="primary-button"
             type="button"
             onClick={runTargetAssessment}
-            disabled={phase === "importing" || phase === "registering" || phase === "running" || phase === "loading" || missingCloudApproval}
+            disabled={
+              phase === "importing" ||
+              phase === "registering" ||
+              phase === "running" ||
+              phase === "loading" ||
+              phase === "approving" ||
+              phase === "creating-pr" ||
+              missingCloudApproval
+            }
           >
             {isScanning ? <RefreshCw className="spin" size={18} /> : <Play size={18} />}
             {phase === "running" ? "Scanning…" : phase === "registering" ? "Initializing…" : "Run security scan"}
@@ -808,12 +844,31 @@ export function SecurityDashboard() {
                     <strong>Defender remediation available</strong>
                     <p>Review the proposed prompt and policy hardening, then apply fixes to your agent configuration.</p>
                   </div>
-                  <button className="secondary-button inline" type="button" onClick={approveTargetFix} disabled={phase === "approving"}>
+                  <button
+                    className="secondary-button inline"
+                    type="button"
+                    onClick={approveTargetFix}
+                    disabled={phase === "approving" || phase === "creating-pr"}
+                  >
                     {phase === "approving" ? <RefreshCw className="spin" size={17} /> : <Wrench size={17} />}
                     Apply remediation
                   </button>
+                  <button
+                    className="secondary-button inline"
+                    type="button"
+                    onClick={createGitHubPr}
+                    disabled={phase === "approving" || phase === "creating-pr"}
+                  >
+                    {phase === "creating-pr" ? <RefreshCw className="spin" size={17} /> : <GitBranch size={17} />}
+                    Create GitHub PR
+                  </button>
                 </div>
                 {approvalMessage ? <p className="success-line">{approvalMessage}</p> : null}
+                {prResult?.prUrl ? (
+                  <p className="success-line">
+                    PR ready: <a href={prResult.prUrl}>{prResult.prUrl}</a>
+                  </p>
+                ) : null}
               </>
             ) : (
               <EmptyState icon={<ShieldCheck size={24} />} title="Complete a scan to generate your security scorecard and compliance report" />
@@ -845,7 +900,7 @@ function deriveStageStatuses(phase: Phase, events: RunEvent[], report: Report | 
   if (report) {
     return { router: "done", engines: "done", sandbox: "done", compliance: "done" };
   }
-  if (phase === "idle" || phase === "loading" || phase === "importing" || phase === "approving") {
+  if (phase === "idle" || phase === "loading" || phase === "importing" || phase === "approving" || phase === "creating-pr") {
     return { router: "pending", engines: "pending", sandbox: "pending", compliance: "pending" };
   }
   if (phase === "registering") {

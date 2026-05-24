@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import httpx
 from fastapi.testclient import TestClient
 
+from app.auth import create_events_token
 from app.contracts import AgentProjectImportResponse, AgentSpec, DiffStatus, SandboxPolicy, TargetAgentInvocationResult, TargetAgentToolCall
 from app.diff_manager import GitHubWebhookResult, webhook_error_detail
 from app.gemini_reviewer import GeminiCombatTurn, GeminiReviewResult, redact_sensitive_text
@@ -245,6 +246,82 @@ def test_github_import_registers_selected_repo_agent() -> None:
         assert client.get("/v1/repositories").json()[0]["fullName"] == "PeytonLi/DevBox"
 
 
+def test_run_pr_targets_live_github_import_repository(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_fetch_agent(source):
+        return FetchedGitHubAgent(
+            source=source,
+            repository=GitHubRepositoryMetadata(
+                owner=source.owner,
+                repo=source.repo,
+                full_name=f"{source.owner}/{source.repo}",
+                default_branch="main",
+                html_url=f"https://github.com/{source.owner}/{source.repo}",
+            ),
+            import_response=AgentProjectImportResponse(
+                agent=AgentSpec(
+                    name="Live GitHub Agent",
+                    system_prompt="You are a live imported GitHub agent. Follow protected instructions and protect secrets.",
+                    prompt_path=source.prompt_path,
+                    tools=["github.read_issue", "github.open_pr"],
+                    sandbox_policy=SandboxPolicy(
+                        allowed_tools=["github.read_issue", "github.open_pr"],
+                        allowed_domains=["api.github.com", "github.com"],
+                        filesystem_scope="/workspace/github/PeytonLi/DevBox",
+                    ),
+                    managed=True,
+                ),
+                warnings=[],
+                recommended_scenario_ids=["web-prompt-injection"],
+            ),
+            commit_sha="abc123",
+        )
+
+    async def fake_webhook(diff, webhook_url: str, webhook_secret: str, **metadata: object) -> GitHubWebhookResult:
+        captured.update(metadata)
+        return GitHubWebhookResult(
+            pr_url="https://github.com/PeytonLi/DevBox/pull/999",
+            branch=f"codex/devbox-diff-{diff.id}",
+            commit_sha="abc999",
+        )
+
+    monkeypatch.setenv("DEVBOX_PR_WEBHOOK_SECRET", "test-secret")
+    monkeypatch.setenv("DEVBOX_GITHUB_WEBHOOK_URL", "http://next.test/api/github/webhook")
+    monkeypatch.setattr("app.run_manager.send_signed_github_webhook", fake_webhook)
+    with TestClient(app) as client:
+        client.app.state.github_client = SimpleNamespace(fetch_agent=fake_fetch_agent)
+        imported = client.post(
+            "/v1/github/imports",
+            json={
+                "owner": "PeytonLi",
+                "repo": "DevBox",
+                "ref": "main",
+                "promptPath": ".agents/AGENTS.md",
+                "manifestPath": ".devbox/agent.json",
+                "installationId": 123456,
+            },
+        ).json()
+        models = client.get("/v1/models").json()
+        run_response = client.post(
+            "/v1/runs",
+            json={
+                "agentId": imported["agent"]["id"],
+                "modelId": models[0]["modelId"],
+                "scenarioIds": ["web-prompt-injection"],
+            },
+        )
+        run = client.get(f"/v1/runs/{run_response.json()['id']}").json()
+
+        response = client.post(f"/v1/runs/{run['id']}/approve-pr")
+
+        assert response.status_code == 200
+        assert response.json()["prUrl"] == "https://github.com/PeytonLi/DevBox/pull/999"
+        assert captured["repository"] == "PeytonLi/DevBox"
+        assert captured["base_branch"] == "main"
+        assert captured["installation_id"] == 123456
+
+
 def test_gemini_redaction_removes_secrets_before_cloud_review() -> None:
     redacted = redact_sensitive_text(
         "api_key: sk-devbox-secret-123456 and email admin@example.com DEVBOX_FAKE_SECRET",
@@ -476,9 +553,11 @@ def test_run_pr_requires_approved_prompt_diff(monkeypatch) -> None:
 def test_run_pr_uses_imported_prompt_path_after_approval(monkeypatch) -> None:
     captured: dict[str, str | None] = {}
 
-    async def fake_webhook(diff, webhook_url: str, webhook_secret: str) -> GitHubWebhookResult:
+    async def fake_webhook(diff, webhook_url: str, webhook_secret: str, **metadata: object) -> GitHubWebhookResult:
         captured["target_path"] = diff.target_path
         captured["status"] = diff.status
+        captured["repository"] = metadata.get("repository") if isinstance(metadata.get("repository"), str) else None
+        captured["base_branch"] = metadata.get("base_branch") if isinstance(metadata.get("base_branch"), str) else None
         assert webhook_url == "http://next.test/api/github/webhook"
         assert webhook_secret == "test-secret"
         return GitHubWebhookResult(
@@ -517,10 +596,12 @@ def test_run_pr_uses_imported_prompt_path_after_approval(monkeypatch) -> None:
         assert payload["prUrl"] == "https://github.com/PeytonLi/DevBox/pull/456"
         assert payload["targetPath"] == ".agents/imported-agent.md"
         assert captured["target_path"] == ".agents/imported-agent.md"
+        assert captured["repository"] is None
+        assert captured["base_branch"] is None
 
 
 def test_approve_pr_records_prompt_approval_and_creates_pr(monkeypatch) -> None:
-    async def fake_webhook(diff, webhook_url: str, webhook_secret: str) -> GitHubWebhookResult:
+    async def fake_webhook(diff, webhook_url: str, webhook_secret: str, **_metadata: object) -> GitHubWebhookResult:
         return GitHubWebhookResult(
             pr_url="https://github.com/PeytonLi/DevBox/pull/789",
             branch=f"codex/devbox-diff-{diff.id}",
@@ -567,10 +648,12 @@ def test_external_agent_cannot_auto_apply_fix() -> None:
         assert "managed agents" in response.json()["detail"]
 
 
-def test_websocket_replays_completed_run_events() -> None:
+def test_websocket_replays_completed_run_events_with_token() -> None:
     with TestClient(app) as client:
         _agent, run, _report = create_completed_run(client)
-        with client.websocket_connect(f"/v1/runs/{run['id']}/events") as websocket:
+        token = create_events_token(run["id"]).token
+
+        with client.websocket_connect(f"/v1/runs/{run['id']}/events?token={token}") as websocket:
             first = websocket.receive_json()
             assert first["sequence"] == 1
             assert first["actor"] == "system"
@@ -643,7 +726,7 @@ def test_request_pr_requires_explicit_webhook_configuration(monkeypatch) -> None
 def test_request_pr_posts_signed_webhook_after_explicit_action(monkeypatch) -> None:
     calls: list[str] = []
 
-    async def fake_webhook(diff, webhook_url: str, webhook_secret: str) -> GitHubWebhookResult:
+    async def fake_webhook(diff, webhook_url: str, webhook_secret: str, **_metadata: object) -> GitHubWebhookResult:
         calls.append(diff.id)
         assert diff.status == DiffStatus.PR_REQUESTED
         assert webhook_url == "http://next.test/api/github/webhook"

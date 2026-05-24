@@ -11,6 +11,9 @@ interface DiffWebhookPayload {
   unifiedDiff: string;
   targetPath?: string;
   title?: string;
+  repository?: string;
+  baseBranch?: string;
+  installationId?: number;
 }
 
 const DEFAULT_REPOSITORY = "PeytonLi/DevBox";
@@ -33,14 +36,6 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid webhook signature" }, { status: 401 });
   }
 
-  const missing = requiredGithubEnv().filter((key) => !process.env[key]);
-  if (missing.length > 0) {
-    return Response.json(
-      { error: `GitHub PR creation unavailable: missing ${missing.join(", ")}` },
-      { status: 503 }
-    );
-  }
-
   let payload: DiffWebhookPayload;
   try {
     payload = JSON.parse(rawBody) as DiffWebhookPayload;
@@ -52,6 +47,14 @@ export async function POST(request: Request) {
     return Response.json({ error: "Payload requires diffId and promptAfter" }, { status: 400 });
   }
 
+  const missing = requiredGithubEnv(payload).filter((key) => !process.env[key]);
+  if (missing.length > 0) {
+    return Response.json(
+      { error: `GitHub PR creation unavailable: missing ${missing.join(", ")}` },
+      { status: 503 }
+    );
+  }
+
   try {
     return Response.json(await createPullRequest(payload));
   } catch (error) {
@@ -60,16 +63,17 @@ export async function POST(request: Request) {
 }
 
 async function createPullRequest(payload: DiffWebhookPayload) {
-  const { owner, repo } = repositoryTarget();
-  const baseBranch = process.env.GITHUB_BASE_BRANCH || "main";
+  const { owner, repo } = repositoryTarget(payload.repository);
+  const baseBranch = payload.baseBranch || process.env.GITHUB_BASE_BRANCH || "main";
   const targetPath = payload.targetPath || process.env.DEVBOX_TARGET_PROMPT_PATH || DEFAULT_TARGET_PATH;
   const branch = `codex/devbox-diff-${payload.diffId}`;
+  const installationId = payload.installationId ?? process.env.GITHUB_APP_INSTALLATION_ID;
   const octokit = new Octokit({
     authStrategy: createAppAuth,
     auth: {
       appId: process.env.GITHUB_APP_ID,
       privateKey: normalizePrivateKey(process.env.GITHUB_APP_PRIVATE_KEY || ""),
-      installationId: process.env.GITHUB_APP_INSTALLATION_ID
+      installationId
     }
   });
 
@@ -118,13 +122,20 @@ function verifySignature(rawBody: string, signature: string, secret: string) {
   return expectedBytes.length === actualBytes.length && timingSafeEqual(expectedBytes, actualBytes);
 }
 
-function requiredGithubEnv() {
-  return ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_INSTALLATION_ID"];
+function requiredGithubEnv(payload: DiffWebhookPayload) {
+  return [
+    "GITHUB_APP_ID",
+    "GITHUB_APP_PRIVATE_KEY",
+    ...(payload.installationId ? [] : ["GITHUB_APP_INSTALLATION_ID"])
+  ];
 }
 
-function repositoryTarget() {
-  const repository = process.env.GITHUB_REPOSITORY || DEFAULT_REPOSITORY;
+function repositoryTarget(payloadRepository?: string) {
+  const repository = payloadRepository || process.env.GITHUB_REPOSITORY || DEFAULT_REPOSITORY;
   const [owner, repo] = repository.split("/");
+  if (!owner || !repo || repository.split("/").length !== 2) {
+    throw new WebhookConfigurationError("GitHub PR creation unavailable: repository must use owner/repo format.");
+  }
   return {
     owner: process.env.GITHUB_OWNER || owner,
     repo: process.env.GITHUB_REPO || repo

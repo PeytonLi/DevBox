@@ -54,7 +54,10 @@ def execute_run_task(run_id: str) -> str:
     return run_id
 
 
-def enqueue_run(run_id: str) -> None:
+def enqueue_run(run_id: str, manager: RunManager | None = None) -> None:
+    if eager_tasks_enabled() and manager is not None:
+        run_coroutine_sync(manager.execute_run(run_id))
+        return
     execute_run_task.delay(run_id)
 
 

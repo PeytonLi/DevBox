@@ -118,6 +118,21 @@ class PersistentStore:
             )
         return record
 
+    def get_agent_import_for_agent(self, agent_id: str) -> AgentImportRecord | None:
+        with session_scope() as session:
+            row = session.scalars(
+                select(AgentImportRow)
+                .where(AgentImportRow.agent_id == agent_id)
+                .order_by(AgentImportRow.created_at.desc())
+            ).first()
+            if row is None:
+                return None
+            repository = session.get(RepositoryRow, row.repository_id)
+            agent = session.get(AgentRow, row.agent_id)
+            if repository is None or agent is None:
+                return None
+            return row_to_agent_import(row, row_to_repository(repository), row_to_agent(agent))
+
     def save_run(self, run: Run) -> Run:
         with session_scope() as session:
             session.merge(run_to_row(run))
@@ -350,6 +365,19 @@ def row_to_repository(row: RepositoryRow) -> RepositoryRecord:
         default_branch=row.default_branch,
         selected_ref=row.selected_ref,
         html_url=row.html_url,
+        created_at=row.created_at,
+    )
+
+
+def row_to_agent_import(row: AgentImportRow, repository: RepositoryRecord, agent: AgentSpec) -> AgentImportRecord:
+    return AgentImportRecord(
+        id=row.id,
+        source=row.source,
+        repository=repository,
+        agent=agent,
+        warnings=list(row.warnings or []),
+        recommended_scenario_ids=list(row.recommended_scenario_ids or []),
+        commit_sha=row.commit_sha,
         created_at=row.created_at,
     )
 

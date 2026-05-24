@@ -118,9 +118,40 @@ export const api = {
     })
 };
 
-export function webSocketUrl(path: string) {
+function webSocketProtocol(protocol: string) {
+  if (protocol === "https:") return "wss:";
+  if (protocol === "http:") return "ws:";
+  return protocol;
+}
+
+function joinUrlPath(basePath: string, path: string) {
+  const normalizedBase = basePath === "/" ? "" : basePath.replace(/\/$/, "");
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${normalizedBase}${normalizedPath}`;
+}
+
+function splitPathAndQuery(path: string) {
+  const separatorIndex = path.indexOf("?");
+  if (separatorIndex === -1) {
+    return { pathname: path, searchParams: new URLSearchParams() };
+  }
+  return {
+    pathname: path.slice(0, separatorIndex),
+    searchParams: new URLSearchParams(path.slice(separatorIndex + 1))
+  };
+}
+
+export function webSocketUrl(path: string, query: Record<string, string> = {}) {
+  const pathParts = splitPathAndQuery(path);
   const url = new URL(API_WS_BASE_URL);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = path;
+  url.protocol = webSocketProtocol(url.protocol);
+  url.pathname = joinUrlPath(url.pathname, pathParts.pathname);
+  url.search = "";
+  pathParts.searchParams.forEach((value, key) => {
+    url.searchParams.set(key, value);
+  });
+  Object.entries(query).forEach(([key, value]) => {
+    url.searchParams.set(key, value);
+  });
   return url.toString();
 }

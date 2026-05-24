@@ -220,7 +220,7 @@ async def create_run(payload: RunCreate, request: Request) -> Run:
         run = await manager.create_run(payload)
     except RunManagerError as exc:
         raise_for_manager_error(exc)
-    enqueue_run(run.id)
+    enqueue_run(run.id, manager)
     return run
 
 

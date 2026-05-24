@@ -132,6 +132,10 @@ async def send_signed_github_webhook(
     diff: DiffResult,
     webhook_url: str,
     webhook_secret: str,
+    *,
+    repository: str | None = None,
+    base_branch: str | None = None,
+    installation_id: int | None = None,
 ) -> GitHubWebhookResult:
     payload: dict[str, Any] = {
         "diffId": diff.id,
@@ -140,6 +144,12 @@ async def send_signed_github_webhook(
         "targetPath": diff.target_path or DEFAULT_TARGET_PATH,
         "title": "chore: apply DevBox prompt hardening diff",
     }
+    if repository:
+        payload["repository"] = repository
+    if base_branch:
+        payload["baseBranch"] = base_branch
+    if installation_id is not None:
+        payload["installationId"] = installation_id
     body = json.dumps(payload, separators=(",", ":"), sort_keys=True)
     digest = hmac.new(webhook_secret.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).hexdigest()
     headers = {

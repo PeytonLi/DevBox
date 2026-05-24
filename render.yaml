@@ -37,7 +37,7 @@ services:
       - key: DEVBOX_GITHUB_WEBHOOK_URL
         sync: false
       - key: DEVBOX_GEMINI_REVIEW_MODEL
-        value: gemini-2.5-flash
+        value: gemini-3.5-flash
 
   - type: worker
     name: devbox-worker
@@ -73,7 +73,7 @@ services:
       - key: GITHUB_APP_INSTALLATION_ID
         sync: false
       - key: DEVBOX_GEMINI_REVIEW_MODEL
-        value: gemini-2.5-flash
+        value: gemini-3.5-flash
 
   - type: keyvalue
     name: devbox-redis
