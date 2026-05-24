@@ -907,9 +907,11 @@ export function SecurityDashboard() {
                     PR ready: <a href={prResult.prUrl}>{prResult.prUrl}</a>
                   </p>
                 ) : null}
-              </>
-            ) : (
-              <EmptyState icon={<ShieldCheck size={24} />} title="Complete a scan to generate your security scorecard and compliance report" />
+                  </>
+                ) : (
+                  <EmptyState icon={<ShieldCheck size={24} />} title="Complete a scan to generate your security scorecard and compliance report" />
+                )}
+              </div>
             )}
           </section>
 
