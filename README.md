@@ -1,6 +1,6 @@
-# DevBox AI Agent Security Composer
+# AgentSecure - AI Agents Security Scanner (Multi-LLM, OpenSource Frameworks)
 
-DevBox is a security review system for AI agents. It analyzes agent prompts, tool bindings, MCP configurations, dependency policies, and project files before those agents are deployed.
+AgentSecure is a security review system for AI agents. It analyzes agent prompts, tool bindings, MCP configurations, dependency policies, and project files before those agents are deployed.
 
 The project was designed for the Google I/O hackathon around a hybrid Gemini/Gemma architecture: use fast cloud models for routing and reasoning, local models for sensitive data, managed sandboxes for controlled execution, and human approval before any remediation is applied.
 
@@ -15,11 +15,11 @@ AI agents are increasingly defined by system prompts, connected tools, MCP serve
 - Security teams need audit evidence, not just a model-generated opinion.
 - Single-provider scanners create blind spots because one model is judging another agent's behavior alone.
 
-DevBox treats AI agent security as an adversarial, multi-model review workflow rather than a static prompt linting task.
+AgentSecure treats AI agent security as an adversarial, multi-model review workflow rather than a static prompt linting task.
 
 ## Solution
 
-DevBox is a hybrid AI agent security composer. It routes each part of an agent review to the best available model or scanner, runs attacks in a controlled sandbox, generates defensive fixes, and keeps a human in the approval loop.
+AgentSecure is a hybrid AI agent security composer. It routes each part of an agent review to the best available model or scanner, runs attacks in a controlled sandbox, generates defensive fixes, and keeps a human in the approval loop.
 
 The system combines:
 
@@ -38,13 +38,13 @@ The system combines:
                          v
               [Gemini Flash Risk Router]
                          |
-        +----------------+----------------+
-        |                |                |
-        v                v                v
+         +----------------+----------------+
+         |                |                |
+         v                v                v
 [Local Gemma Lane] [Gemini Reasoning] [Open-Source Scanners]
 [Secrets + PII]    [Injection + Logic] [garak / LLM Guard]
-        |                |                |
-        +----------------+----------------+
+         |                |                |
+         +----------------+----------------+
                          |
                          v
               [Managed Agent Sandbox]
@@ -74,7 +74,7 @@ The system combines:
 
 ## Adversarial Duet
 
-DevBox uses two coordinated agents during review.
+AgentSecure uses two coordinated agents during review.
 
 ### Attacking Agent
 
@@ -111,6 +111,6 @@ The MVP demonstrates the end-to-end concept with safe defaults:
 
 ## Security Boundary
 
-DevBox is for authorized security testing only. It evaluates agents created in the lab or connected through explicit opt-in integrations.
+AgentSecure is for authorized security testing only. It evaluates agents created in the lab or connected through explicit opt-in integrations.
 
 Sensitive content is routed through local redaction and privacy-preserving lanes before cloud review. Prompt, policy, dependency, and repository changes require human approval before they are applied.
